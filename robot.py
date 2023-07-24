@@ -13,3 +13,7 @@ import numpy as np
 
 # クラスとして自分で定義した諸々の読み込み
 from ideal_robot import *
+
+# より現実的なロボットのクラスをIdealRobotを継承して実装する
+class Robot(IdealRobot):
+    pass
