@@ -199,13 +199,12 @@ class Agent:
                 lin_scale = 0.5
                 ang_scale = 0.5
 
-                # 現在地から目標地点までの相対位置ベクトル、相対位置ベクトルの空間中の角度を取得
-                goal_dir = np.array([0.0, 0.0])
-                goal_dir[0] = self.goal[0] - self.pose[0]
+                # 現在地から目標地点までの相対位置ベクトル、相対位置ベクトルの空間中の角度を取得()
+                goal_dir = np.array([0.0, 0.0])                                     # 相対位置ベクトル
+                goal_dir[0] = self.goal[0] - self.pose[0]                           # まとめて引き算すれば良いのにうまく行かないので1要素ずつ引き算している
                 goal_dir[1] = self.goal[1] - self.pose[1]
                 # print(self.id, self.goal, self.pose, goal_dir)
-
-                goal_dir_angle = math.acos(goal_dir[0]/np.linalg.norm(goal_dir))
+                goal_dir_angle = math.acos(goal_dir[0]/np.linalg.norm(goal_dir))    # 相対位置ベクトルの空間中の角度（水平右向きがゼロ度、そこから半時計回りに+、時計回りに-
                 if goal_dir[1] < 0:
                     goal_dir_angle = -goal_dir_angle
 
@@ -320,11 +319,11 @@ class IdealCamera:
 if __name__=='__main__':
     ################################
     # シミュレーションの設定
-    NUM_BOTS = 3                    # ロボット総数
+    NUM_BOTS = 4                    # ロボット総数
     MAX_VEL = np.array([2.0, 1.0])  # ロボット最大速度（[m/s], [rad/s]）
     FIELD = 600                     # フィールド1辺長さ[m]
     SIM_TIME = 100                  # シミュレーション総時間
-    SAVE_VIDEO = True               # 動画ファイルを保存
+    SAVE_VIDEO = False              # 動画ファイルを保存
     VIDEO_PLAY_SPEED = 10           # 動画ファイルの再生速度倍率
     ################################
 
