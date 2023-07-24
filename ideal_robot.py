@@ -13,6 +13,7 @@ import numpy as np
 # 環境を定義するクラス
 class World:
     def __init__(self, time_span, time_interval, debug=False,
+                 field = 600,
                  save_video = False, video_speed = 10):
         self.objects = []                   # ロボット、ランドマーク等のあらゆるオブジェクトがここに格納される
         self.debug = debug                  # Trueのときはアニメーションを切ってデバッグしやすくする
@@ -20,6 +21,7 @@ class World:
         self.time_interval= time_interval   # タイムステップ幅
         self.save_video = save_video        # 動画を保存するかどうか
         self.video_speed = video_speed      # 動画の再生速度（×倍速）
+        self.field_size = field             # フィールド1辺長さ[m]
 
     # オブジェクトを世界の一部として登録するためのメソッド
     def append(self, obj):
@@ -29,15 +31,15 @@ class World:
         fig = plt.figure(figsize=(10, 10))      # 8*8 inch の図を準備
         ax = fig.add_subplot(111)               # サブプロットを準備
         ax.set_aspect('equal')                  # 縦横比を座標の値と一致させる
-        ax.set_xlim(-50, 650)                     # x軸の範囲
-        ax.set_ylim(-50, 650)                     # y軸の範囲
+        ax.set_xlim(-50, self.field_size+50)    # x軸の範囲
+        ax.set_ylim(-50, self.field_size+50)    # y軸の範囲
         ax.set_xlabel("X", fontsize = 20)       # x軸ラベル
         ax.set_ylabel("y", fontsize = 20)       # y軸ラベル
 
         # アニメーション関連の処理
         elems = []                              # 描画する図形のリスト
         if self.debug:
-            for i in range(100):
+            for i in range(int(self.time_span/self.time_interval)):
                 self.one_step(i, elems, ax)     # デバッグ時はアニメーションさせない
         else:
             # アニメーションするオブジェクトを作る（intervalは更新周期[ms]
@@ -70,13 +72,20 @@ class World:
 # 理想ロボット（動作について誤差などが発生しない）を定義するクラス
 class IdealRobot:
     def __init__(self, id, role, pose,
+                 max_vel,
                  agent = None, sensor = None,
                  color='black'):
-        self.id = id            # ロボットのID
-        self.role = role        # ロボットの役割
-        self.pose = pose        # ロボットの位置・姿勢の初期値
-        self.agent = agent      # ロボットを動かす主体（コイツが速度指令値とか決める）
-        self.sensor = sensor    # ロボットに搭載されているセンサ
+        # ロボットのステータス
+        self.id = id                    # ロボットのID
+        self.role = role                # ロボットの役割
+        self.pose = pose                # ロボットの位置・姿勢の初期値
+        self.max_vel = max_vel          # ロボットの最大速度（[m/s], [rad/s]）
+        self.agent = agent              # ロボットを動かす主体（コイツが速度指令値とか決める）
+        self.sensor = sensor            # ロボットに搭載されているセンサ
+        self.goal = np.array([0, 0])    # ロボットの目標地点
+        self.reached = True             # ロボットは目標地点に着いてるかどうか
+
+        # その他の一般設定
         self.color = color      # ロボットの描画上の色
         self.r = 5              # （描画上の）ロボットの半径
         self.pose_log = [pose]  # 軌跡を描画するために今までの位置と姿勢を格納する
@@ -101,11 +110,16 @@ class IdealRobot:
         if not self.agent:
             return
         
+        # センサ情報を取得
         if self.sensor:
             obs = self.sensor.data(self.pose)
         else:
             None
-        nu, omega = self.agent.decision(obs)
+
+        # センサ情報だけでないが諸々使ってロボットの制御指令を決める
+        nu, omega, self.goal = self.agent.decision(self.pose, self.role, self.max_vel, self.current_time, obs)
+        
+        # 制御指令に従ってロボットの情報を更新
         self.pose = self.state_transition(nu, omega, time_interval, self.pose)
         self.current_time += time_interval
         # print(self.current_time)
@@ -148,12 +162,83 @@ class IdealRobot:
 
 # ロボットを動かすエージェントのクラス
 class Agent:
-    def __init__(self, nu, omega):
+    def __init__(self, id, nu, omega, robot=None):
+        self.id = id
         self.nu = nu
         self.omega = omega
+        self.robot = robot
+        self.goal = np.array([0, 0])    # ロボットの目標位置
+        self.reached = True             # ロボットの目標位置にロボットが着いたか？
 
-    def decision(self, observation=None):
-        return self.nu, self.omega
+    def decision(self, pose, role, max_vel, current_time, observation=None):
+        self.pose = pose                    # ロボットの現在位置（本人の信念）
+        self.role = role                    # ロボットの現在役割
+        self.max_vel = max_vel              # ロボットの最大速度
+        self.current_time = current_time    # 現在時刻    
+
+        if self.role != 'basestation':
+            # 目標地点への到達判定をする
+            if current_time > 0:
+                self.dist_to_goal = math.sqrt((self.goal[0]-self.pose[0])**2 + (self.goal[1] - self.pose[1])**2)
+                if self.dist_to_goal < 3:
+                    self.reached = True
+                else:
+                    self.reached = False            
+
+            # ロボットが目標地点に着いていたら、新しい目標地点を生成する
+            if self.reached == True:
+                self.reached = False    # ロボットの到着フラグをオフに
+
+                # 新しい目標地点を演算する
+                self.goal = np.array([100.0, 200.0])
+                return 0, 0, self.goal
+            
+            # ロボットが目標地点に着いていないなら、目標地点まで向かうための速度と角速度を出力する
+            else:
+                # 速度を決めるスケール
+                lin_scale = 0.5
+                ang_scale = 0.5
+
+                # 現在地から目標地点までの相対位置ベクトル、相対位置ベクトルの空間中の角度を取得
+                goal_dir = np.array([0.0, 0.0])
+                goal_dir[0] = self.goal[0] - self.pose[0]
+                goal_dir[1] = self.goal[1] - self.pose[1]
+                # print(self.id, self.goal, self.pose, goal_dir)
+
+                goal_dir_angle = math.acos(goal_dir[0]/np.linalg.norm(goal_dir))
+                if goal_dir[1] < 0:
+                    goal_dir_angle = -goal_dir_angle
+
+                # 目標位置ベクトルの空間中の角度と現在のロボットの向きの差を取る
+                # 参考：https://twitter.com/Atsushi_twi/status/1185868416864808960?s=20
+                diff_angle = math.atan2(math.sin(goal_dir_angle - self.pose[2]), math.cos(goal_dir_angle - self.pose[2]))
+
+                # 目標までの角度と距離に応じて出力を決める
+                if abs(diff_angle) > math.pi/4:
+                    lin_vel = 0
+                    ang_vel = diff_angle * ang_scale
+                else:
+                    lin_vel = np.linalg.norm(goal_dir) * lin_scale
+                    ang_vel = diff_angle * ang_scale
+
+                # 最大速度の制限
+                if lin_vel > self.max_vel[0]:
+                    lin_vel = self.max_vel[0]
+                if ang_vel > self.max_vel[1]:
+                    ang_vel = self.max_vel[1]
+                elif ang_vel < -self.max_vel[1]:
+                    ang_vel = -self.max_vel[1]
+
+                return lin_vel, ang_vel, self.goal
+        else:
+            return 0, 0, np.array([0, 0])
+        
+    def levyflight(self, pose):
+        self.pose = pose
+        levy_dist = 0
+        direction = 0
+        return np.array([self.pose[0] + levy_dist*math.cos(direction),
+                         self.pose[1] + levy_dist*math.sin(direction)])
     
 # ランドマークのクラス（今回は使わないかも）
 class Landmark:
@@ -235,17 +320,21 @@ class IdealCamera:
 if __name__=='__main__':
     ################################
     # シミュレーションの設定
-    NUM_BOTS = 3            # ロボット総数
-    SAVE_VIDEO = True       # 動画ファイルを保存
-    VIDEO_PLAY_SPEED = 10   # 動画ファイルの再生速度倍率
+    NUM_BOTS = 3                    # ロボット総数
+    MAX_VEL = np.array([2.0, 1.0])  # ロボット最大速度（[m/s], [rad/s]）
+    FIELD = 600                     # フィールド1辺長さ[m]
+    SIM_TIME = 100                  # シミュレーション総時間
+    SAVE_VIDEO = True               # 動画ファイルを保存
+    VIDEO_PLAY_SPEED = 10           # 動画ファイルの再生速度倍率
     ################################
 
     ################################
     # テスト実行用
     ################################
     # 環境をオブジェクト化
-    world = World(50, 1, debug=False,
-                save_video=SAVE_VIDEO, video_speed=VIDEO_PLAY_SPEED)     
+    world = World(SIM_TIME, 1, debug=False,
+                  field=FIELD,
+                  save_video=SAVE_VIDEO, video_speed=VIDEO_PLAY_SPEED)     
 
     # ランドマークを生成、地図に登録、地図と環境を紐付け
     m = Map()
@@ -254,27 +343,32 @@ if __name__=='__main__':
     world.append(m)
 
     # エージェントを定義
-    straight = Agent(1.5, 0.0)
-    circling = Agent(1.5, 10.0/180*math.pi)
-    bs_agent = Agent(0.0, 0.0)
+    # straight = Agent(1.5, 0.0)
+    # circling = Agent(1.5, 10.0/180*math.pi)
+    # bs_agent = Agent(0.0, 0.0)
 
     # ロボットのオブジェクト化
     robots = [IdealRobot(id=i, role = 'explorer',
-                        pose=np.array([random.uniform(0,100),
+                         pose=np.array([random.uniform(0,100),
                                         random.uniform(0,100),
                                         random.uniform(-math.pi,math.pi)]).T,
-                        sensor = IdealCamera(m))
-                        for i in range (NUM_BOTS)]
+                         max_vel = MAX_VEL,
+                         sensor = IdealCamera(m))
+                         for i in range (NUM_BOTS)]
+    
+    # エージェント（コイツがロボットの動きを決める）のオブジェクト化
+    agents = [Agent(id=i, nu=0, omega=0) for i in range (NUM_BOTS)]
 
     # すべてのロボットを環境に登録する
     for i in range(NUM_BOTS):
+        # 各ロボットにエージェントを搭載
+        robots[i].agent = agents[i]
+                
         # 基地局の設定
         if i == 0:
             robots[i].role = 'basestation'
             robots[i].pose = np.array([0,0,0]).T
-            robots[i].agent = bs_agent
-        else:
-            robots[i].agent = circling
+        
         world.append(robots[i])
         # print(robots[i])
 
