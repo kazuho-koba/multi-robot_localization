@@ -297,11 +297,12 @@ class Map:
 
 # 理想センサ（カメラ、ただし観測誤差が生じない）のクラス
 class IdealCamera:
-    def __init__(self, env_map, myself, robots,
+    def __init__(self, env_map, myself, robots, field,
                  distance_range=(1.0, 90.0), direction_range=(-math.pi/3, math.pi/3)):
         self.map = env_map                      # 地図情報（ランドマークなどが登録されている）
         self.myself = myself                    # このカメラが搭載されているロボットの情報
         self.robots = robots                    # 全てのロボットの情報（あらゆる情報が含まれるので、そもそも検知し得る場所にいるかは別で判定する）
+        self.field = field                      # フィールド広さ（x，ｙ座標最大値）
         self.lastdata = []                      # 各対象について最後に計測したときの情報
         self.distance_range = distance_range    # 計測可能距離レンジ
         self.direction_range = direction_range  # 計測可能角度レンジ
@@ -412,7 +413,7 @@ if __name__=='__main__':
             
         # 各ロボットにエージェントとセンサを搭載
         robots[i].agent = agents[i]
-        robots[i].sensor = IdealCamera(m, robots[i], robots)
+        robots[i].sensor = IdealCamera(m, robots[i], robots, field=FIELD)
                 
         
         world.append(robots[i])
