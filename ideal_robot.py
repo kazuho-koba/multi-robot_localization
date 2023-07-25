@@ -160,6 +160,7 @@ class IdealRobot:
         # センサによる検知の様子の描画
         if self.sensor and len(self.pose_log) > 1:
             self.sensor.draw(ax, elems, self.pose_log[-2])
+            hoge = 1 + 1
         # エージェントの情報を描画
         if self.agent and hasattr(self.agent, 'draw'):
             self.agent.draw(ax, elems)
@@ -295,9 +296,11 @@ class Map:
 
 # 理想センサ（カメラ、ただし観測誤差が生じない）のクラス
 class IdealCamera:
-    def __init__(self, env_map,
+    def __init__(self, env_map, myself, robots,
                  distance_range=(1.0, 90.0), direction_range=(-math.pi/3, math.pi/3)):
-        self.map = env_map
+        self.map = env_map                      # 地図情報（ランドマークなどが登録されている）
+        self.myself = myself                    # このカメラが搭載されているロボットの情報
+        self.robots = robots                    # 全てのロボットの情報（あらゆる情報が含まれるので、そもそも検知し得る場所にいるかは別で判定する）
         self.lastdata = []                      # 各対象について最後に計測したときの情報
         self.distance_range = distance_range    # 計測可能距離レンジ
         self.direction_range = direction_range  # 計測可能角度レンジ
@@ -310,13 +313,24 @@ class IdealCamera:
         return self.distance_range[0] <= polarpos[0] <= self.distance_range[1]\
             and self.direction_range[0] <= polarpos[1] <= self.direction_range[1]
 
+    # 環境中のオブジェクトをセンサ情報として取得（センサレンジ内に入っているか否かの判定を含む）するメソッド
     def data(self, cam_pose):
+        # センサで観測できたオブジェクトのリスト
         observed = []
+
+        # ランドマークの計測
         for lm in self.map.landmarks:
             p = self.observation_function(cam_pose, lm.pos)
             if self.visible(p):
                 observed.append((p, lm.id))
 
+        # 他のロボットの計測
+        for bot in self.robots:
+            if bot.id != self.myself.id:    # 自分自身は計測しない
+                sensed_bot = self.observation_function(cam_pose, bot.pose[0:2])
+                if self.visible(sensed_bot):
+                    observed.append((sensed_bot, bot.id))
+        
         self.lastdata = observed
         return observed
     
@@ -351,8 +365,8 @@ if __name__=='__main__':
     NUM_BOTS = 4                    # ロボット総数
     MAX_VEL = np.array([2.0, 1.0])  # ロボット最大速度（[m/s], [rad/s]）
     FIELD = 600                     # フィールド1辺長さ[m]
-    SIM_TIME = 1000                  # シミュレーション総時間
-    SAVE_VIDEO = True              # 動画ファイルを保存
+    SIM_TIME = 1000                  # シミュレーション総時間 [sec]
+    SAVE_VIDEO = False              # 動画ファイルを保存
     VIDEO_PLAY_SPEED = 10           # 動画ファイルの再生速度倍率
     ################################
 
@@ -380,8 +394,7 @@ if __name__=='__main__':
                          pose=np.array([random.uniform(0,100),
                                         random.uniform(0,100),
                                         random.uniform(-math.pi,math.pi)]).T,
-                         max_vel = MAX_VEL,
-                         sensor = IdealCamera(m))
+                         max_vel = MAX_VEL)
                          for i in range (NUM_BOTS)]
     
     # エージェント（コイツがロボットの動きを決める）のオブジェクト化
@@ -389,13 +402,14 @@ if __name__=='__main__':
 
     # すべてのロボットを環境に登録する
     for i in range(NUM_BOTS):
-        # 各ロボットにエージェントを搭載
+        # 各ロボットにエージェントとセンサを搭載
         robots[i].agent = agents[i]
+        robots[i].sensor = IdealCamera(m, robots[i], robots)
                 
         # 基地局の設定
         if i == 0:
             robots[i].role = 'basestation'
-            robots[i].pose = np.array([0,0,0]).T
+            robots[i].pose = np.array([0,0,45.0/180*math.pi]).T
         
         world.append(robots[i])
         # print(robots[i])
