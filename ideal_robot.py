@@ -76,7 +76,7 @@ class World:
 # 理想ロボット（動作について誤差などが発生しない）を定義するクラス
 class IdealRobot:
     def __init__(self, id, role, pose,
-                 max_vel,
+                 max_vel, field,
                  agent = None, sensor = None,
                  color='black'):
         # ロボットのステータス
@@ -84,6 +84,7 @@ class IdealRobot:
         self.role = role                # ロボットの役割
         self.pose = pose                # ロボットの位置・姿勢の初期値
         self.max_vel = max_vel          # ロボットの最大速度（[m/s], [rad/s]）
+        self.field = field              # 領域広さ（x, y座標の最大値）
         self.agent = agent              # ロボットを動かす主体（コイツが速度指令値とか決める）
         self.sensor = sensor            # ロボットに搭載されているセンサ
         self.goal = np.array([0, 0])    # ロボットの目標地点
@@ -357,6 +358,7 @@ class IdealCamera:
             ly = y + distance*math.sin(direction+theta)
             elems += ax.plot([x, lx], [y, ly], color="pink")
 
+
 # このファイルを直接実行した場合はここからスタートする
 if __name__=='__main__':
 
@@ -394,7 +396,7 @@ if __name__=='__main__':
                          pose=np.array([random.uniform(0,100),
                                         random.uniform(0,100),
                                         random.uniform(-math.pi,math.pi)]).T,
-                         max_vel = MAX_VEL)
+                         max_vel=MAX_VEL, field=FIELD)
                          for i in range (NUM_BOTS)]
     
     # エージェント（コイツがロボットの動きを決める）のオブジェクト化
@@ -402,14 +404,16 @@ if __name__=='__main__':
 
     # すべてのロボットを環境に登録する
     for i in range(NUM_BOTS):
-        # 各ロボットにエージェントとセンサを搭載
-        robots[i].agent = agents[i]
-        robots[i].sensor = IdealCamera(m, robots[i], robots)
-                
+        
         # 基地局の設定
         if i == 0:
             robots[i].role = 'basestation'
             robots[i].pose = np.array([0,0,45.0/180*math.pi]).T
+            
+        # 各ロボットにエージェントとセンサを搭載
+        robots[i].agent = agents[i]
+        robots[i].sensor = IdealCamera(m, robots[i], robots)
+                
         
         world.append(robots[i])
         # print(robots[i])
