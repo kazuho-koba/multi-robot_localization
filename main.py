@@ -24,7 +24,7 @@ if __name__ == '__main__':
     NUM_BOTS = 4                    # ロボット総数
     MAX_VEL = np.array([2.0, 1.0])  # ロボット最大速度（[m/s], [rad/s]）
     FIELD = 600.0                   # フィールド1辺長さ[m]
-    SIM_TIME = 1000                  # シミュレーション総時間 [sec]
+    SIM_TIME = 500                  # シミュレーション総時間 [sec]
     SAVE_VIDEO = True               # 動画ファイルを保存
     VIDEO_PLAY_SPEED = 10           # 動画ファイルの再生速度倍率
     ################################
