@@ -9,6 +9,7 @@ import matplotlib.patches as patches
 import matplotlib.animation as anm
 import math, random
 import numpy as np
+from scipy.stats import levy_stable
 
 # 環境を定義するクラス
 class World:
@@ -190,7 +191,7 @@ class Agent:
                 self.reached = False    # ロボットの到着フラグをオフに
 
                 # 新しい目標地点を演算する
-                self.goal = np.array([100.0, 200.0])
+                self.goal = self.levyflight(self.pose, alpha=1.2, min_step=50, max_step=450, bound=600)
                 return 0, 0, self.goal
             
             # ロボットが目標地点に着いていないなら、目標地点まで向かうための速度と角速度を出力する
@@ -232,12 +233,17 @@ class Agent:
         else:
             return 0, 0, np.array([0, 0])
         
-    def levyflight(self, pose):
-        self.pose = pose
-        levy_dist = 0
-        direction = 0
-        return np.array([self.pose[0] + levy_dist*math.cos(direction),
-                         self.pose[1] + levy_dist*math.sin(direction)])
+    # 
+    def levyflight(self, pose, alpha, min_step, max_step, bound):
+        new_goal = np.array([-1, -1]).T
+        while(new_goal[0] < 0 or new_goal[0] > bound\
+              or new_goal[1] < 0 or new_goal[1] > bound):
+            step_size = (np.random.power(alpha) * (max_step - min_step)) + min_step
+            direction = np.random.uniform(-math.pi, math.pi)
+            new_goal = np.array([pose[0] + step_size*math.cos(direction),
+                                 pose[1] + step_size*math.sin(direction)]).T
+        
+        return new_goal
     
 # ランドマークのクラス（今回は使わないかも）
 class Landmark:
@@ -323,7 +329,7 @@ if __name__=='__main__':
     NUM_BOTS = 4                    # ロボット総数
     MAX_VEL = np.array([2.0, 1.0])  # ロボット最大速度（[m/s], [rad/s]）
     FIELD = 600                     # フィールド1辺長さ[m]
-    SIM_TIME = 100                  # シミュレーション総時間
+    SIM_TIME = 1000                  # シミュレーション総時間
     SAVE_VIDEO = False              # 動画ファイルを保存
     VIDEO_PLAY_SPEED = 10           # 動画ファイルの再生速度倍率
     ################################
