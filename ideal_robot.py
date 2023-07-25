@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 # matplotlib.use('nbagg')   #　これはjupyter notebookとかでアニメーションを表示するためのもので、通常pythonだと逆に表示されなくなる
 import matplotlib.animation as anm
+from matplotlib import font_manager
 import math, random
 import numpy as np
 from scipy.stats import levy_stable
@@ -59,8 +60,10 @@ class World:
         while elems:
             elems.pop().remove()
         
-        # 時刻の描画
-        elems.append(ax.text(-25,625, "t= %.1f[s]" %(self.time_interval*i+1), fontsize=10))
+        # 時刻と再生速度の描画
+        jpfont = font_manager.FontProperties(fname="/usr/share/fonts/truetype/fonts-japanese-gothic.ttf")   # 日本語フォントの読み込み
+        elems.append(ax.text(-25,630, "%.0f倍速" %(self.video_speed), fontsize=10, fontproperties=jpfont))
+        elems.append(ax.text(-25,615, "t= %.1f[s]" %(self.time_interval*i+1), fontsize=10))
         
         # 他のオブジェクトの描画
         for obj in self.objects:
@@ -150,8 +153,8 @@ class IdealRobot:
         # ロボット軌跡の描画
         if self.current_time == 0:
             del self.pose_log[0]                                # ログの0番目は削除
-        elems += ax.plot([e[0] for e in self.pose_log[-20:]],
-                         [e[1] for e in self.pose_log[-20:]],
+        elems += ax.plot([e[0] for e in self.pose_log[-200:]],
+                         [e[1] for e in self.pose_log[-200:]],
                          linewidth = 0.5, color='black')        # ロボットの軌跡（直近20タイムステップ分）を描画リストに追加
 
         # センサによる検知の様子の描画
@@ -171,6 +174,7 @@ class Agent:
         self.goal = np.array([0, 0])    # ロボットの目標位置
         self.reached = True             # ロボットの目標位置にロボットが着いたか？
 
+    # エージェントが意思決定をするメソッド（今は目的地に向かう速度と角速度を出力し、目的地に到着したら新たな目的地を決める）
     def decision(self, pose, role, max_vel, current_time, observation=None):
         self.pose = pose                    # ロボットの現在位置（本人の信念）
         self.role = role                    # ロボットの現在役割
@@ -190,8 +194,8 @@ class Agent:
             if self.reached == True:
                 self.reached = False    # ロボットの到着フラグをオフに
 
-                # 新しい目標地点を演算する
-                self.goal = self.levyflight(self.pose, alpha=1.2, min_step=50, max_step=450, bound=600)
+                # 新しい目標地点を演算する。今回は特に目的地はなく、レヴィフライトに従う
+                self.goal = self.levyflight(self.pose, alpha=2.0, gamma=1.0, min_step=30, max_step=500, bound=600)
                 return 0, 0, self.goal
             
             # ロボットが目標地点に着いていないなら、目標地点まで向かうための速度と角速度を出力する
@@ -233,13 +237,31 @@ class Agent:
         else:
             return 0, 0, np.array([0, 0])
         
-    # 
-    def levyflight(self, pose, alpha, min_step, max_step, bound):
+    # レヴィフライトに基づく次の目的地を決めるメソッド
+    def levyflight(self, pose, alpha, gamma, min_step, max_step, bound):
+        # 目的地を初期化（ループに入れるためにフィールドの外にセットする）
         new_goal = np.array([-1, -1]).T
+
+        # レヴィフライトの挙動を決める。移動先がフィールドの外になりそうなら、やり直す
         while(new_goal[0] < 0 or new_goal[0] > bound\
               or new_goal[1] < 0 or new_goal[1] > bound):
-            step_size = (np.random.power(alpha) * (max_step - min_step)) + min_step
+            
+            # レヴィ分布に従う移動距離を決める。リジェクションサンプリングという手法を使う（参考：https://the-silkworms.com/stats_rejectsampling_intro/1050/
+            # alphaとgammaの値は群ロボットでターゲット探索を行う片田先生の論文を踏襲
+            candidate_adopted = False
+            max_prob_density = gamma * (min_step ** -alpha)
+            while candidate_adopted == False:
+                candidate = min_step + (max_step-min_step) * np.random.uniform(0, 1)
+                prob_candidate = gamma * (candidate ** -alpha)
+                adoption_threshold = np.random.uniform(0, 1) * max_prob_density
+                if prob_candidate > adoption_threshold:
+                    step_size = candidate
+                    candidate_adopted = True
+            
+            # レヴィ分布に従うのは移動距離のみ、移動方向はランダム
             direction = np.random.uniform(-math.pi, math.pi)
+
+            # 移動先の地点を計算する（これがフィールド範囲外なら外側のwhileループを抜けないので、やり直し
             new_goal = np.array([pose[0] + step_size*math.cos(direction),
                                  pose[1] + step_size*math.sin(direction)]).T
         
@@ -330,7 +352,7 @@ if __name__=='__main__':
     MAX_VEL = np.array([2.0, 1.0])  # ロボット最大速度（[m/s], [rad/s]）
     FIELD = 600                     # フィールド1辺長さ[m]
     SIM_TIME = 1000                  # シミュレーション総時間
-    SAVE_VIDEO = False              # 動画ファイルを保存
+    SAVE_VIDEO = True              # 動画ファイルを保存
     VIDEO_PLAY_SPEED = 10           # 動画ファイルの再生速度倍率
     ################################
 
