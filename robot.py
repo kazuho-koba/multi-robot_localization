@@ -127,9 +127,12 @@ class Robot(IdealRobot):
 
         obs = self.sensor.data(self.pose) if self.sensor else None
 
-        # ロボットの1ステップあたり移動量を決める
-        nu, omega, self.goal = self.agent.decision(
+        # ロボットの1ステップあたり移動量を決める（返り値にはこのあとノイズなどが乗る）
+        nu, omega, self.goal = self.agent.move_to_goal(
             self.pose, self.role, self.max_vel, self.current_time, obs)
+        
+        # その他の意思決定をエージェントから受け取る（現時点では何もしない、継承先でdecisionメソッドごと上書き）
+        nu, omega = self.agent.decision(obs)
 
         # 決定した移動量に従ってロボットの情報を更新
         # 移動量にバイアスを印加
