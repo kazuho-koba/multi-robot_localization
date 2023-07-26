@@ -23,7 +23,7 @@ class Particle:
 
 # パーティクルを管理するクラスを作る
 class Mcl:
-    def __init__(self, init_pose, num):
+    def __init__(self, init_pose, num, motion_noise_stds):
         # numで指定された数だけパーティクルのオブジェクトを用意する
         self.particles = [Particle(init_pose) for i in range(num)]
 
@@ -76,13 +76,14 @@ class EstimationAgent(Agent):
 
 # このファイルを直接実行した場合はここからスタートする
 if __name__=='__main__':
-
+    
     ################################
     # シミュレーションの設定
     NUM_BOTS = 4                    # ロボット総数
     MAX_VEL = np.array([2.0, 1.0])  # ロボット最大速度（[m/s], [rad/s]）
     FIELD = 600                     # フィールド1辺長さ[m]
     SIM_TIME = 1000                  # シミュレーション総時間 [sec]
+    TIME_STEP = 1                   # 1ステップあたり経過する秒数
     SAVE_VIDEO = False              # 動画ファイルを保存
     VIDEO_PLAY_SPEED = 10           # 動画ファイルの再生速度倍率
     ################################
@@ -111,9 +112,10 @@ if __name__=='__main__':
               for i in range(NUM_BOTS)]
     
     # エージェント（コイツがロボットの動きを決める）のオブジェクト化
-    estimators = [Mcl(init_pose=robots[i].pose, num=100)
+    estimators = [Mcl(init_pose=robots[i].pose, num=100,
+                      motion_noise_stds={"nn":0.01,"no":0.02,"on":0.03,"oo":0.04})
                   for i in range(NUM_BOTS)]                 # 各エージェントに搭載する自己位置推定器の定義
-    agents = [EstimationAgent(id=i, nu=0, omega=0, estimator=estimators[i])
+    agents = [EstimationAgent(time_interval=TIME_STEP, id=i, nu=0, omega=0, estimator=estimators[i])
               for i in range (NUM_BOTS)]                    # 各エージェントを定義
 
     # すべてのロボットにエージェントやセンサを搭載して、環境に登録する
