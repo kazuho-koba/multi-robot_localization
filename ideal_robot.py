@@ -103,11 +103,19 @@ class IdealRobot:
         
         # 角速度が小さい時とそれ以外で場合分け
         if math.fabs(omega) < 1e-10:
-            return pose + np.array([nu*math.cos(t0), nu*math.sin(t0), omega])*time
+            new_pose = pose + np.array([nu*math.cos(t0),
+                                        nu*math.sin(t0),
+                                        omega])*time
+            # 角度を-pi〜piの範囲にする
+            new_pose[2] = math.atan2(math.sin(new_pose[2]), math.cos(new_pose[2]))
+            return new_pose
         else:
-            return pose + np.array([nu/omega*(math.sin(t0 + omega*time)-math.sin(t0)),
-                                    nu/omega*(-math.cos(t0 + omega*time) + math.cos(t0)),
-                                    omega*time])
+            new_pose = pose + np.array([nu/omega*(math.sin(t0 + omega*time)-math.sin(t0)),
+                                        nu/omega*(-math.cos(t0 + omega*time) + math.cos(t0)),
+                                        omega*time])
+            # 角度を-pi〜piの範囲にする
+            new_pose[2] = math.atan2(math.sin(new_pose[2]), math.cos(new_pose[2]))
+            return new_pose
         
     # ロボットがエージェントの決定に従って速度指令を受け取るメソッド
     def one_step(self, time_interval):
@@ -117,20 +125,24 @@ class IdealRobot:
         
         # センサ情報を取得
         if self.sensor:
-            obs = self.sensor.data(self.pose)
+            self.obs = self.sensor.data(self.pose)
         else:
-            None
+            self.obs = None
 
         # エージェントからロボット目標地点とそこに向かうための速度を受け取る
-        nu, omega, self.goal = self.agent.move_to_goal(self.pose, self.role, self.max_vel, self.current_time, obs)
+        nu, omega, self.goal = self.agent.move_to_goal(
+            self.pose, self.role, self.max_vel, self.current_time, self.obs)
 
         # その他のエージェントによる意思決定
-        nu, omega = self.agent.decision(obs)
+        nu, omega = self.agent.decision(self.obs)
+
+        # 基地局エージェントによる他ロボット観測結果の処理
+        if self.role == 'basestation':
+            self.agent.bs_task()
         
         # 制御指令に従ってロボットの情報を更新
         self.pose = self.state_transition(nu, omega, time_interval, self.pose)
         self.current_time += time_interval
-        # print(self.current_time)
 
     # ロボットを描画するメソッド
     def draw(self, ax, elems):
@@ -152,8 +164,11 @@ class IdealRobot:
         c = patches.Circle(xy=(x, y), radius=self.r,
                            fill=False, color=self.color)    # ロボット本体を示す円の設定
         elems.append(ax.add_patch(c))                       # ロボット本体を示す円を描画
-        self.pose_log.append(self.pose)                     # ロボットの位置・姿勢ログに現在のそれを追加
+        elems.append(ax.text(x+5, y, self.id, fontsize=10)) # ロボットIDを描画
         
+        # ロボットの位置・姿勢ログに現在のそれを追加
+        self.pose_log.append(self.pose)                     
+
         # ロボット軌跡の描画
         if self.current_time == 0:
             del self.pose_log[0]                                # ログの0番目は削除
@@ -171,11 +186,13 @@ class IdealRobot:
 
 # ロボットを動かすエージェントのクラス
 class Agent:
-    def __init__(self, id, nu, omega, robot=None):
+    def __init__(self, id, role, nu, omega, robot=None, allrobots=None):
         self.id = id
+        self.role = role
         self.nu = nu                    # ロボットに指示する速度（1ステップあたり前進量
         self.omega = omega              # ロボットに指示する速度（1ステップあたり旋回量
         self.robot = robot              # 自身に関する情報
+        self.allrobots = allrobots      # 全ロボットの情報
         self.goal = np.array([0, 0])    # ロボットの目標位置
         self.reached = True             # ロボットの目標位置にロボットが着いたか？
 
@@ -277,18 +294,23 @@ class Agent:
     # その他の意思決定を行うメソッド（継承先クラスのメソッドで上書きする）
     def decision(self, observation=None):
         return self.nu, self.omega
+    
+    # 自身が基地局の場合に実行する処理（継承先で実装）
+    def bs_task(self):
+        pass
+        
 
 # ランドマークのクラス（今回は使わないかも）
 class Landmark:
-    def __init__(self, x, y):
-        self.pos = np.array([x, y]).T
+    def __init__(self, x, y, theta):
+        self.pose = np.array([x, y, theta]).T
         self.id = None
 
     def draw(self, ax, elems):
-        c = ax.scatter(self.pos[0], self.pos[1], s=100, marker='*',
+        c = ax.scatter(self.pose[0], self.pose[1], s=100, marker='*',
                        label='landmarks', color='orange')
         elems.append(c)
-        elems.append(ax.text(self.pos[0], self.pos[1], 'id: '+str(self.id), fontsize=10))
+        elems.append(ax.text(self.pose[0], self.pose[1], 'id: '+str(self.id), fontsize=10))
 
 # 地図のクラス（環境Worldにオーバーレイされるイメージ。ランドマークなどが登録される）
 class Map:
@@ -312,7 +334,7 @@ class Map:
 # 理想センサ（カメラ、ただし観測誤差が生じない）のクラス
 class IdealCamera:
     def __init__(self, env_map, myself, robots, field,
-                 distance_range=(1.0, 90.0), direction_range=(-math.pi/3, math.pi/3)):
+                 distance_range=(1.0, 90.0), direction_range=(-math.pi, math.pi)):
         self.map = env_map                      # 地図情報（ランドマークなどが登録されている）
         self.myself = myself                    # このカメラが搭載されているロボットの情報
         self.robots = robots                    # 全てのロボットの情報（あらゆる情報が含まれるので、そもそも検知し得る場所にいるかは別で判定する）
@@ -336,23 +358,23 @@ class IdealCamera:
 
         # ランドマークの計測
         for lm in self.map.landmarks:
-            p = self.observation_function(cam_pose, lm.pos)
+            p = self.observation_function(cam_pose, lm.pose)
             if self.visible(p):
-                observed.append((p, lm.id))
+                observed.append(('landmark', p, lm.id))
 
         # 他のロボットの計測
         for bot in self.robots:
             if bot.id != self.myself.id:    # 自分自身は計測しない
-                sensed_bot = self.observation_function(cam_pose, bot.pose[0:2])
+                sensed_bot = self.observation_function(cam_pose, bot.pose)
                 if self.visible(sensed_bot):
-                    observed.append((sensed_bot, bot.id))
+                    observed.append(('robot', sensed_bot, bot.id, bot.role))
         
         self.lastdata = observed
         return observed
     
     @classmethod
-    def observation_function(cls, cam_pose, obj_pos):
-        diff = obj_pos - cam_pose[0:2]
+    def observation_function(cls, cam_pose, obj_pose):
+        diff = obj_pose[0:2] - cam_pose[0:2]
         phi = math.atan2(diff[1], diff[0]) - cam_pose[2]
 
         # 対象が見えている方位角を-pi〜piの範囲に収める
@@ -361,14 +383,17 @@ class IdealCamera:
         while phi < -np.pi:
             phi += 2*np.pi
 
+        # 対象の向きを獲得する
+        obj_theta = obj_pose[2]
+
         # 返り値。hypotは2乗和の平方根を返す。*diffはdiffの要素それぞれ
-        return np.array([np.hypot(*diff), phi]).T
+        return np.array([np.hypot(*diff), phi, obj_theta]).T
     
     # 計測の様子を描画
     def draw(self, ax, elems, cam_pose):
         for lm in self.lastdata:
             x, y, theta = cam_pose
-            distance, direction = lm[0][0], lm[0][1]
+            distance, direction = lm[1][0], lm[1][1]
             lx = x + distance*math.cos(direction+theta)
             ly = y + distance*math.sin(direction+theta)
             elems += ax.plot([x, lx], [y, ly], color="pink")
@@ -397,8 +422,8 @@ if __name__=='__main__':
 
     # ランドマークを生成、地図に登録、地図と環境を紐付け
     m = Map()
-    m.append_landmark(Landmark(100, 0))
-    m.append_landmark(Landmark(0, 100))
+    m.append_landmark(Landmark(100, 0, 0))
+    m.append_landmark(Landmark(0, 100, 0))
     world.append(m)
 
     # エージェントを定義
@@ -413,17 +438,16 @@ if __name__=='__main__':
                                         random.uniform(-math.pi,math.pi)]).T,
                          max_vel=MAX_VEL, field=FIELD)
                          for i in range (NUM_BOTS)]
+    # 基地局は特殊なのでその設定を追加
+    robots[0].role = 'basestation'
+    robots[0].pose = np.array([0, 0, 0])   
     
     # エージェント（コイツがロボットの動きを決める）のオブジェクト化
-    agents = [Agent(id=i, nu=0, omega=0) for i in range (NUM_BOTS)]
+    agents = [Agent(id=robots[i].id, role = robots[i].role,
+                    nu=0, omega=0, robot=robots[i], allrobots=robots) for i in range (NUM_BOTS)]
 
     # すべてのロボットを環境に登録する
     for i in range(NUM_BOTS):
-        
-        # 基地局の設定
-        if i == 0:
-            robots[i].role = 'basestation'
-            robots[i].pose = np.array([0,0,45.0/180*math.pi]).T
             
         # 各ロボットにエージェントとセンサを搭載
         robots[i].agent = agents[i]

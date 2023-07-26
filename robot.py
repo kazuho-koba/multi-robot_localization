@@ -24,12 +24,16 @@ class Robot(IdealRobot):
                  color='black',
                  noise_per_meter=0.1, noise_std=math.pi/180,   # 1mあたりに生じるノイズの回数、ロボの向きに乗るノイズの標準偏差
                  # 移動量に対するロボット固有のバイアス（前進、旋回）
-                 bias_rate_stds=(0.05, 0.05),
+                 bias_rate_stds=(0.05, 0.025),
                  ex_stuck_time=1000, ex_escape_time=10,     # スタック発生間隔の期待値、スタック脱出所要時間
                  ex_kidnap_time=3600*24                     # 誘拐の発生間隔の期待値
                  ):
         # 継承したIdealRobotクラスのinitを実行する
         super().__init__(id, role, pose, max_vel, field, agent, sensor, color)
+
+        # 基地局から通知された情報
+        self.informed_pose = []
+        self.informed_time = 0
 
         # ロボットの移動に加わるバイアスを定義
         # noise_per_meterは1mあたりのノイズ（踏みつける小石のイメージ）の個数平均値。その逆数はノイズを1つ引き当てる(=小石を踏む)までの前進距離
@@ -122,17 +126,32 @@ class Robot(IdealRobot):
 
     # ロボットについて今時タイムステップに実行する処理
     def one_step(self, time_interval):
+        # エージェントが搭載されていない場合、何もしない
         if not self.agent:
             return
+        
+        # print(self.id, self.informed_pose, self.informed_time)
+        if self.pose[2] > math.pi or self.pose[2] < -math.pi:
+            print(self.id, self.pose)
 
-        obs = self.sensor.data(self.pose) if self.sensor else None
+        # センサ情報を取得
+        if self.sensor:
+            self.obs = self.sensor.data(self.pose)
+            # print(self.obs)
+        else:
+            self.obs = None
+
 
         # ロボットの1ステップあたり移動量を決める（返り値にはこのあとノイズなどが乗る）
         nu, omega, self.goal = self.agent.move_to_goal(
-            self.pose, self.role, self.max_vel, self.current_time, obs)
+            self.pose, self.role, self.max_vel, self.current_time, self.obs)
         
         # その他の意思決定をエージェントから受け取る（現時点では何もしない、継承先でdecisionメソッドごと上書き）
-        nu, omega = self.agent.decision(obs)
+        nu, omega = self.agent.decision(self.obs)
+
+        # 基地局エージェントによる他ロボット観測結果の処理
+        if self.role == 'basestation':
+            self.agent.bs_task()
 
         # 決定した移動量に従ってロボットの情報を更新
         # 移動量にバイアスを印加
@@ -150,7 +169,7 @@ class Robot(IdealRobot):
 # より現実的なカメラのクラスをIdealCameraクラスを継承して実装する
 class Camera(IdealCamera):
     def __init__(self, env_map, myself, robots, field,
-                 distance_range=(1.0, 90.0), direction_range=(-math.pi/3, math.pi/3),
+                 distance_range=(1.0, 90.0), direction_range=(-math.pi, math.pi),
                  distance_noise_rate=0.1, direction_noise=math.pi/90,               # センサへのノイズ
                  distance_bias_rate_stddev=0.1, direction_bias_stddev=math.pi/90,   # センサのバイアス
                  phantom_prob=0.01,                                                 # センサが幻影をみる確率
@@ -171,8 +190,8 @@ class Camera(IdealCamera):
         # センサが幻影を見る確率に関する設定
         phantom_range_x, phantom_range_y = (0.0, field), (0.0, field)
         rx, ry = phantom_range_x, phantom_range_y
-        self.phantom_dist = uniform(loc=(rx[0], ry[0]), scale=(rx[1]-rx[0], ry[1]-ry[0])) # 幻影が生じうる場所の分布
-        self.phantom_prob = phantom_prob                                                  # 幻影が発生する確率
+        self.phantom_dist = uniform(loc=(rx[0], ry[0], 0), scale=(rx[1]-rx[0], ry[1]-ry[0], 0)) # 幻影が生じうる場所の分布
+        self.phantom_prob = phantom_prob                                                        # 幻影が発生する確率
 
         # センサの見落としに関する設定
         self.oversight_prob = oversight_prob
@@ -185,14 +204,17 @@ class Camera(IdealCamera):
     def noise(self, relpos):
         # 計測距離を真値周辺のガウス分布からドロー
         ell = norm.rvs(loc=relpos[0], scale=relpos[0]*self.distance_noise_rate)
-        # 計測角度を（以下同文
+        # カメラから対象への視線角を（以下同文
         phi = norm.rvs(loc=relpos[1], scale=self.direction_noise)
-        return np.array([ell, phi]).T
+        # 対象自体の空間角を（以下同文
+        theta = norm.rvs(loc=relpos[2], scale=self.direction_noise)
+        
+        return np.array([ell, phi, theta]).T
     
     # 計測値にバイアスを加えて返すメソッド
     def bias(self, relpos):
         return relpos + np.array([relpos[0]*self.distance_bias_rate_std,
-                                  self.direction_bias]).T
+                                  self.direction_bias, 0]).T
     
     # 一定確率で幻影を生じさせるメソッド
     # これはセンサの覆域内かどうかの判定より前に呼ばれるので、覆域内に何もなくても幻影が生じうる
@@ -215,7 +237,7 @@ class Camera(IdealCamera):
     def occulusion(self, relpos):
         if uniform.rvs() < self.occulusion_prob:
             ell = relpos[0] + uniform.rvs()*(self.distance_range[1] - relpos[0])
-            return np.array([ell, relpos[1]]).T
+            return np.array([ell, relpos[1], relpos[2]]).T
         else:
             return relpos
 
@@ -227,31 +249,32 @@ class Camera(IdealCamera):
         # ランドマークの計測
         for lm in self.map.landmarks:
             # センサからの見え方を演算
-            z = self.observation_function(cam_pose, lm.pos) # ランドマークを計測
+            z = self.observation_function(cam_pose, lm.pose)# ランドマークを計測
             z = self.phantom(cam_pose, z)                   # 幻影を見てランドマークの位置を大きく誤計測する可能性を扱う処理
             z = self.occulusion(z)                          # オクルージョンの可能性を考慮
             z = self.oversight(z)                           # 見落としの可能性を処理
-
+                        
             # センサの範囲内であればノイズなどを加えて観測リストに追加
             if self.visible(z):
                 z = self.bias(z)
                 z = self.noise(z)
-                observed.append((z, lm.id, 'landmark'))
+                observed.append(('landmark', z, lm.id))
+
 
         # 他のロボットの計測
         for bot in self.robots:
             if bot.id != self.myself.id:    # 自分自身は計測しない
                 # センサからの見え方を演算
-                sensed_bot = self.observation_function(cam_pose, bot.pose[0:2]) # 他のロボットの位置を計測
-                sensed_bot = self.phantom(cam_pose, sensed_bot)                 # 幻影を見て計測した他ロボの位置を大きくご計測する可能性を扱う処理
-                sensed_bot = self.occulusion(sensed_bot)                        # オクルージョンの可能性を考慮
-                sensed_bot = self.oversight(sensed_bot)                         # 見落としの確率を処理
+                sensed_bot = self.observation_function(cam_pose, bot.pose)  # 他のロボットの位置を計測
+                sensed_bot = self.phantom(cam_pose, sensed_bot)             # 幻影を見て計測した他ロボの位置を大きくご計測する可能性を扱う処理
+                sensed_bot = self.occulusion(sensed_bot)                    # オクルージョンの可能性を考慮
+                sensed_bot = self.oversight(sensed_bot)                     # 見落としの確率を処理
 
                 # センサの範囲内であればノイズなどを加えて観測リストに追加
                 if self.visible(sensed_bot):
                     sensed_bot = self.bias(sensed_bot)
                     sensed_bot = self.noise(sensed_bot)
-                    observed.append((sensed_bot, bot.id, 'robot'))
+                    observed.append(('robot', sensed_bot, bot.id, bot.role))
         
         self.lastdata = observed
         return observed
@@ -280,8 +303,8 @@ if __name__ == '__main__':
 
     # ランドマークを生成、地図に登録、地図と環境を紐付け
     m = Map()
-    m.append_landmark(Landmark(100, 0))
-    m.append_landmark(Landmark(0, 100))
+    m.append_landmark(Landmark(100, 0, 0))
+    m.append_landmark(Landmark(0, 100, 0))
     world.append(m)
 
     # エージェントを定義
@@ -296,23 +319,20 @@ if __name__ == '__main__':
                                    random.uniform(-math.pi, math.pi)]).T,
                     max_vel=MAX_VEL, field=FIELD)
               for i in range(NUM_BOTS)]
+    # 基地局は特殊なのでその設定を追加
+    robots[0].role = 'basestation'
+    robots[0].pose = np.array([0, 0, 0])
 
     # エージェント（コイツがロボットの動きを決める）のオブジェクト化
-    agents = [Agent(id=i, nu=0, omega=0) for i in range(NUM_BOTS)]
+    agents = [Agent(id=robots[i].id, role=robots[i].role, nu=0, omega=0) for i in range(NUM_BOTS)]
 
     # すべてのロボットを環境に登録する
     for i in range(NUM_BOTS):
-
-        # 基地局の設定
-        if i == 0:
-            robots[i].role = 'basestation'
-            robots[i].pose = np.array([0, 0, 45.0/180*math.pi]).T
 
         # 各ロボットにエージェントとセンサを搭載
         robots[i].agent = agents[i]
         robots[i].sensor = Camera(m, robots[i], robots, field=FIELD)
 
         world.append(robots[i])
-        # print(robots[i])
 
     world.draw()

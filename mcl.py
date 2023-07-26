@@ -26,22 +26,22 @@ class Particle:
     def observation_update(self, observation, envmap, distance_dev_rate, direction_dev):
         for d in observation:
             # ランドマークを検知した場合
-            if d[2] == 'landmark':
-                obs_pos = d[0]
-                obs_id = d[1]
+            if d[0] == 'landmark':
+                obs_pos = d[1][0:2]     # 第3要素は対象の向き（ランドマークの場合は使わないデータ）なので除外
+                obs_id = d[2]
 
                 # パーティクルの位置と地図からランドマークの距離と方角を算出(自己位置の候補であり確定的な位置座標であるパーティクルの位置から
                 # 既知のランドマークを見たらどう見えるか、という演算なので、CameraでなくIdealCameraの観測関数を呼び出している)
-                pos_on_map = envmap.landmarks[obs_id].pos
+                pos_on_map = envmap.landmarks[obs_id].pose
                 particle_suggest_pos = IdealCamera.observation_function(self.pose, pos_on_map)
 
                 # 尤度の計算
                 distance_dev = distance_dev_rate * particle_suggest_pos[0]
                 cov = np.diag(np.array([distance_dev**2, direction_dev**2]))
-                self.weight *= multivariate_normal(mean=particle_suggest_pos, cov=cov).pdf(obs_pos)
+                self.weight *= multivariate_normal(mean=particle_suggest_pos[0:2], cov=cov).pdf(obs_pos)
             
             # 他のロボットを検知した場合
-            elif d[2] == 'robot':
+            elif d[0] == 'robot':
                 # print(envmap.robots[d[1]-1])
                 pass
 
@@ -147,15 +147,20 @@ class Mcl:
 
 # Agentクラスを継承して自己位置推定を行うエージェントのクラスを作る
 class EstimationAgent(Agent):
-    def __init__(self, time_interval, id, nu, omega, robot=None, estimator=None):
+    def __init__(self, time_interval, id, role, nu, omega,
+                 robot=None, allrobots=None, estimator=None):
         # 継承元のAgentクラスの初期化処理を実行
-        super().__init__(id, nu, omega, robot)
+        super().__init__(id, role, nu, omega, robot, allrobots)
         self.estimator = estimator
         self.time_interval = time_interval
 
         # ロボットに1ステップ前に指示した移動量（これにノイズを載せてパーティクルの移動量にする）
         self.prev_nu = 0.0
         self.prev_omega = 0.0
+        
+        # 他ロボットの観測結果を保存する変数
+        # self.robot_obs_log = {key: None for key in range(len(self.allrobots))}  # 他ロボットの観測結果ログ
+        # self.robot_obs_ma = {key: None for key in range(len(self.allrobots))}   # 上記を元に移動平均を取ったデータ
 
     # エージェントが意思決定をするメソッド（継承元のメソッドを上書き
     def decision(self, observation=None):
@@ -170,6 +175,21 @@ class EstimationAgent(Agent):
         
         return self.nu, self.omega
     
+        
+    # 自身が基地局エージェントの場合に実行する処理
+    def bs_task(self):
+        # 他のロボットの観測結果を抽出する
+        observed_robot = [o for o in self.robot.obs if o[0]=='robot']   # 検知したロボットのリストを観測リストから取得
+        
+        # 各ロボットの位置推定結果を計算し、そのロボットに教えてあげる
+        for obs_bot in observed_robot:
+            est_pose = np.array([obs_bot[1][0]*math.cos(obs_bot[1][1]),
+                                 obs_bot[1][0]*math.sin(obs_bot[1][1]),
+                                 obs_bot[1][2]]).T
+            self.allrobots[obs_bot[2]].informed_pose = est_pose
+            self.allrobots[obs_bot[2]].informed_time = self.robot.current_time
+            
+    
     # 描画に関する処理（エージェントが想定する自己位置に関する信念を描写する）
     def draw(self, ax, elems):
         self.estimator.draw(ax, elems)
@@ -177,9 +197,9 @@ class EstimationAgent(Agent):
         # 尤度最大のパーティクルの姿勢を描画
         x,y,t = self.estimator.pose     # 座標の取得
         s = "({:.1f}, {:.1f}, {})".format(x, y, int(t*180/math.pi)%360)
-        elems.append(ax.text(x, y+0.1, s, fontsize=10))
+        # elems.append(ax.text(x, y+0.1, s, fontsize=10))
         elems.append(ax.quiver(x, y, math.cos(t), math.sin(t),
-                               color='red', scale=15))
+                               color='red', scale=15, alpha=0.5))
 
 
 # このファイルを直接実行した場合はここからスタートする
@@ -206,8 +226,8 @@ if __name__=='__main__':
 
     # ランドマークを生成、地図に登録
     m = Map()
-    m.append_landmark(Landmark(100, 0))
-    m.append_landmark(Landmark(0, 100))
+    m.append_landmark(Landmark(80, 0, 0))
+    m.append_landmark(Landmark(0, 80, 0))
     
 
     # ロボットのオブジェクト化
@@ -219,15 +239,16 @@ if __name__=='__main__':
               for i in range(NUM_BOTS)]
     
     # 基地局は特殊なのでその設定を追加
-    robots[1].role = 'basestation'
-    robots[1].pose = np.array([0, 0, 45.0/180*math.pi])
+    robots[0].role = 'basestation'
+    robots[0].pose = np.array([0, 0, 0])
 
     # エージェント（コイツがロボットの動きを決める）のオブジェクト化
     estimators = [Mcl(m, init_pose=robots[i].pose, num=100,
-                      motion_noise_stds={"nn":0.8,"no":0.001,"on":0.005,"oo":0.2})
+                      motion_noise_stds={"nn":0.8,"no":0.001,"on":0.005,"oo":0.12})
                   for i in range(NUM_BOTS)]                 # 各エージェントに搭載する自己位置推定器の定義
-    agents = [EstimationAgent(time_interval=TIME_STEP, id=i, nu=0, omega=0, 
-                              robot=robots[i], estimator=estimators[i])
+    agents = [EstimationAgent(time_interval=TIME_STEP,
+                              id=robots[i].id, role=robots[i].role, nu=0, omega=0, 
+                              robot=robots[i], allrobots=robots, estimator=estimators[i])
               for i in range (NUM_BOTS)]                    # 各エージェントを定義
 
     # すべてのロボットにエージェントやセンサを搭載して、環境に登録する

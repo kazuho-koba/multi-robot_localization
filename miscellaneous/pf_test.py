@@ -12,7 +12,7 @@ initial_pose = np.array([0, 0, 0]).T
 robots = []
 
 for i in range(100):
-    r = Robot(1, 1, initial_pose, np.array([2.0, 1.0]), 600, agent=Agent(1, 0.0, math.pi*10.0/180), sensor = None)
+    r = Robot(1, 1, initial_pose, np.array([2.0, 1.0]), 600, agent=Agent(1, 1, 0.0, math.pi*10.0/180), sensor = None)
     world.append(r)
     robots.append(r)
 
