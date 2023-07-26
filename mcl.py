@@ -38,6 +38,10 @@ class Particle:
                 # 尤度の計算
                 distance_dev = distance_dev_rate * particle_suggest_pos[0]
                 cov = np.diag(np.array([distance_dev**2, direction_dev**2]))
+                # 尤度に従って重みを更新する。.PDF(arg)はargを得る確率を確率密度関数（PDF、この場合はその前に
+                # 記載した多変量正規分布によって得られるPDF）返す。今回はobs_posという「ロボットから見たランドマークの距離、視線角（観測実績値）」が
+                # 得られる確率を、PDFが平均値particle_suggest_pos（今考えてるパーティクルから見た場合に得られるはずの距離と視差角）、共分散行列cov（センサ特性で決まる）
+                # で表現される多変量正規分布であるとして、得ている。
                 self.weight *= multivariate_normal(mean=particle_suggest_pos[0:2], cov=cov).pdf(obs_pos)
             
             # 他のロボットを検知した場合
@@ -51,9 +55,8 @@ class Particle:
                 # 基地局からもらった情報には自分の向きも含まれる（1つのランドマークを観測するだけでは、
                 # ロボット自身の向きの推測は不可能で、自己位置推定結果のパーティクルがランドマーク周りに
                 # ドーナツ状に分布することになる）
-                # ChatGPTに聞いたので自分でもよくわかっていない・・・
 
-                # 基地局から得たデータ
+                # ロボットの位置と姿勢（基地局が観測して通知してきたデータ）
                 obs_x, obs_y, obs_theta = envmap.robots[id].informed_pose[0], envmap.robots[id].informed_pose[1], envmap.robots[id].informed_pose[2]
 
                 # 尤度計算に必要な情報を計算する
@@ -64,8 +67,18 @@ class Particle:
                 # パーティクル位置と基地局からの観測データの差を計算する
                 diff = np.array([obs_x - self.pose[0], obs_y - self.pose[1], obs_theta - self.pose[2]])
                 
-                # それに基づいて重みを更新
+                # それに基づいて重みを更新する
+                # ランドマークを観測した場合の応用で、diff（基地局が観測したロボットの位置・姿勢と、今検討対象としているパーティクルの位置・姿勢の差分）
+                # が得られる確率を、PDFが平均ゼロ、共分散がセンサ特性で決まる多変量正規分布であるとして計算している。
                 self.weight *= multivariate_normal(mean=[0, 0, 0], cov=cov).pdf(diff)
+
+
+                ######## 重み更新の別解（やることは上と同じ） ##################
+                # obs_x, obs_y, obs_theta（基地局が観測したロボットの位置・姿勢）が得られる確率を、PDFが
+                # 平均がパーティクルの位置・姿勢、共分散がセンサ特性によって決まるものとして計算し重みに乗じる
+                # self.weight *= multivariate_normal(mean=np.array([self.pose[0], self.pose[1], self.pose[2]]),
+                #                                    cov = cov).pdf(np.array([obs_x, obs_y, obs_theta]))
+                ########################################
                 pass
 
 
@@ -236,7 +249,7 @@ if __name__=='__main__':
     FIELD = 600                     # フィールド1辺長さ[m]
     SIM_TIME = 500                  # シミュレーション総時間 [sec]
     TIME_STEP = 1                   # 1ステップあたり経過する秒数
-    SAVE_VIDEO = True              # 動画ファイルを保存
+    SAVE_VIDEO = False              # 動画ファイルを保存
     VIDEO_PLAY_SPEED = 10           # 動画ファイルの再生速度倍率
     ################################
 
