@@ -32,8 +32,8 @@ class Robot(IdealRobot):
         super().__init__(id, role, pose, max_vel, field, agent, sensor, color)
 
         # 基地局から通知された情報
-        self.informed_pose = []
-        self.informed_time = 0
+        self.informed_pose = np.array([0, 0, 0])
+        self.informed_time = -1
 
         # ロボットの移動に加わるバイアスを定義
         # noise_per_meterは1mあたりのノイズ（踏みつける小石のイメージ）の個数平均値。その逆数はノイズを1つ引き当てる(=小石を踏む)までの前進距離
@@ -130,9 +130,7 @@ class Robot(IdealRobot):
         if not self.agent:
             return
         
-        # print(self.id, self.informed_pose, self.informed_time)
-        if self.pose[2] > math.pi or self.pose[2] < -math.pi:
-            print(self.id, self.pose)
+        # print(self.id, self.informed_pose, self.informed_time, self.current_time)
 
         # センサ情報を取得
         if self.sensor:
@@ -305,8 +303,7 @@ if __name__ == '__main__':
     m = Map()
     m.append_landmark(Landmark(100, 0, 0))
     m.append_landmark(Landmark(0, 100, 0))
-    world.append(m)
-
+    
     # エージェントを定義
     # straight = Agent(1.5, 0.0)
     # circling = Agent(1.5, 10.0/180*math.pi)
@@ -333,6 +330,12 @@ if __name__ == '__main__':
         robots[i].agent = agents[i]
         robots[i].sensor = Camera(m, robots[i], robots, field=FIELD)
 
+        # 各ロボットをマップ経由で参照できるようにする
+        m.append_robot(robots[i])      
+
         world.append(robots[i])
+    
+    # 地図をワールドに登録
+    world.append(m)
 
     world.draw()

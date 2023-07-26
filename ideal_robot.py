@@ -424,7 +424,6 @@ if __name__=='__main__':
     m = Map()
     m.append_landmark(Landmark(100, 0, 0))
     m.append_landmark(Landmark(0, 100, 0))
-    world.append(m)
 
     # エージェントを定義
     # straight = Agent(1.5, 0.0)
@@ -453,10 +452,13 @@ if __name__=='__main__':
         robots[i].agent = agents[i]
         robots[i].sensor = IdealCamera(m, robots[i], robots, field=FIELD)
 
-        #                 
+        # 各ロボットをマップ経由で参照できるようにする
+        m.append_robot(robots[i])                
         
         world.append(robots[i])
         # print(robots[i])
 
+    # 地図を世界に登録
+    world.append(m)
 
     world.draw()

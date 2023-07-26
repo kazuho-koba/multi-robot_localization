@@ -23,7 +23,7 @@ class Particle:
         self.pose = IdealRobot.state_transition(noised_nu, noised_omega, time, self.pose)
     
     # 自己位置推定器から呼び出されてパーティクルから見たカメラの観測結果を返す
-    def observation_update(self, observation, envmap, distance_dev_rate, direction_dev):
+    def observation_update(self, observation, id, envmap, distance_dev_rate, direction_dev):
         for d in observation:
             # ランドマークを検知した場合
             if d[0] == 'landmark':
@@ -44,6 +44,30 @@ class Particle:
             elif d[0] == 'robot':
                 # print(envmap.robots[d[1]-1])
                 pass
+
+            # 基地局から、基地局による自機位置観測結果をもらっていた場合
+            if envmap.robots[id].informed_time == envmap.robots[id].current_time:
+                
+                # 基地局からもらった情報には自分の向きも含まれる（1つのランドマークを観測するだけでは、
+                # ロボット自身の向きの推測は不可能で、自己位置推定結果のパーティクルがランドマーク周りに
+                # ドーナツ状に分布することになる）
+                # ChatGPTに聞いたので自分でもよくわかっていない・・・
+
+                # 基地局から得たデータ
+                obs_x, obs_y, obs_theta = envmap.robots[id].informed_pose[0], envmap.robots[id].informed_pose[1], envmap.robots[id].informed_pose[2]
+
+                # 尤度計算に必要な情報を計算する
+                distance_dev_x = distance_dev_rate * obs_x
+                distance_dev_y = distance_dev_rate * obs_y
+                cov = np.diag(np.array([distance_dev_x**2, distance_dev_y**2, direction_dev**2]))
+
+                # パーティクル位置と基地局からの観測データの差を計算する
+                diff = np.array([obs_x - self.pose[0], obs_y - self.pose[1], obs_theta - self.pose[2]])
+                
+                # それに基づいて重みを更新
+                self.weight *= multivariate_normal(mean=[0, 0, 0], cov=cov).pdf(diff)
+                pass
+
 
 # パーティクルを管理する自己位置情報推定器のクラスを作る
 class Mcl:
@@ -72,9 +96,9 @@ class Mcl:
             p.motion_update(nu, omega, time, self.motion_noise_rate_pdf)
 
     # エージェントから呼び出されてカメラ情報の処理をする
-    def observation_update(self, observation):
+    def observation_update(self, id, observation):
         for p in self.particles:
-            p.observation_update(observation, self.map, self.distance_dev_rate, self.direction_dev)
+            p.observation_update(observation, id, self.map, self.distance_dev_rate, self.direction_dev)
         
         # この時点で尤度最大のパーティクル情報を取得
         self.set_ml()
@@ -171,7 +195,7 @@ class EstimationAgent(Agent):
         self.prev_nu, self.prev_omega = self.nu, self.omega
 
         # カメラ情報を取得
-        self.estimator.observation_update(observation)
+        self.estimator.observation_update(self.id, observation)
         
         return self.nu, self.omega
     
@@ -210,9 +234,9 @@ if __name__=='__main__':
     NUM_BOTS = 4                    # ロボット総数
     MAX_VEL = np.array([2.0, 1.0])  # ロボット最大速度（[m/s], [rad/s]）
     FIELD = 600                     # フィールド1辺長さ[m]
-    SIM_TIME = 1000                  # シミュレーション総時間 [sec]
+    SIM_TIME = 500                  # シミュレーション総時間 [sec]
     TIME_STEP = 1                   # 1ステップあたり経過する秒数
-    SAVE_VIDEO = False              # 動画ファイルを保存
+    SAVE_VIDEO = True              # 動画ファイルを保存
     VIDEO_PLAY_SPEED = 10           # 動画ファイルの再生速度倍率
     ################################
 
@@ -226,8 +250,8 @@ if __name__=='__main__':
 
     # ランドマークを生成、地図に登録
     m = Map()
-    m.append_landmark(Landmark(80, 0, 0))
-    m.append_landmark(Landmark(0, 80, 0))
+    # m.append_landmark(Landmark(80, 0, 0))
+    # m.append_landmark(Landmark(0, 80, 0))
     
 
     # ロボットのオブジェクト化
