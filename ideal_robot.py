@@ -294,11 +294,16 @@ class Landmark:
 class Map:
     def __init__(self):
         self.landmarks = []     # 空のランドマークのリストを準備する
+        self.robots = []
 
     # ランドマークを追加するメソッド
     def append_landmark(self, landmark):
-        landmark.id = len(self.landmarks) + 1
+        landmark.id = len(self.landmarks)
         self.landmarks.append(landmark)
+
+    # ロボットを追加するメソッド
+    def append_robot(self, robot):
+        self.robots.append(robot)
 
     def draw(self, ax, elems):
         for lm in self.landmarks:

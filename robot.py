@@ -22,9 +22,9 @@ class Robot(IdealRobot):
                  max_vel, field,
                  agent=None, sensor=None,
                  color='black',
-                 noise_per_meter=1, noise_std=math.pi/60,   # 1mあたりに生じるノイズの回数、ロボの向きに乗るノイズの標準偏差
+                 noise_per_meter=0.1, noise_std=math.pi/180,   # 1mあたりに生じるノイズの回数、ロボの向きに乗るノイズの標準偏差
                  # 移動量に対するロボット固有のバイアス（前進、旋回）
-                 bias_rate_stds=(0.1, 0.1),
+                 bias_rate_stds=(0.05, 0.05),
                  ex_stuck_time=1000, ex_escape_time=10,     # スタック発生間隔の期待値、スタック脱出所要時間
                  ex_kidnap_time=3600*24                     # 誘拐の発生間隔の期待値
                  ):
@@ -236,7 +236,7 @@ class Camera(IdealCamera):
             if self.visible(z):
                 z = self.bias(z)
                 z = self.noise(z)
-                observed.append((z, lm.id))
+                observed.append((z, lm.id, 'landmark'))
 
         # 他のロボットの計測
         for bot in self.robots:
@@ -251,7 +251,7 @@ class Camera(IdealCamera):
                 if self.visible(sensed_bot):
                     sensed_bot = self.bias(sensed_bot)
                     sensed_bot = self.noise(sensed_bot)
-                    observed.append((sensed_bot, bot.id))
+                    observed.append((sensed_bot, bot.id, 'robot'))
         
         self.lastdata = observed
         return observed
