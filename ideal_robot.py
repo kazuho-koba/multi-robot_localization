@@ -173,8 +173,8 @@ class IdealRobot:
 class Agent:
     def __init__(self, id, nu, omega, robot=None):
         self.id = id
-        self.nu = nu
-        self.omega = omega              # ロボットに指示する移動量
+        self.nu = nu                    # ロボットに指示する速度（1ステップあたり前進量
+        self.omega = omega              # ロボットに指示する速度（1ステップあたり旋回量
         self.robot = robot              # 自身に関する情報
         self.goal = np.array([0, 0])    # ロボットの目標位置
         self.reached = True             # ロボットの目標位置にロボットが着いたか？
@@ -423,7 +423,8 @@ if __name__=='__main__':
         # 各ロボットにエージェントとセンサを搭載
         robots[i].agent = agents[i]
         robots[i].sensor = IdealCamera(m, robots[i], robots, field=FIELD)
-                
+
+        #                 
         
         world.append(robots[i])
         # print(robots[i])
