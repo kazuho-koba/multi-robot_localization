@@ -1,3 +1,7 @@
+# パッケージのインポート
+from scipy.stats import multivariate_normal
+
+# 独自に定義したクラスファイルなどのインポート
 from robot import *
 
 # 各パーティクルを表現するクラスを作る
@@ -5,19 +9,66 @@ class Particle:
     def __init__(self, init_pose):
         self.pose = init_pose
 
+    # パーティクルの動きを実装するメソッド
+    def motion_update(self, nu, omega, time, noise_rate_pdf):
+
+        ns = noise_rate_pdf.rvs()   # ノイズをドロー（順にnn, no, on, oo）
+        # ノイズが乗った移動量を演算
+        noised_nu = nu + ns[0]*math.sqrt(abs(nu)/time) + ns[1]*math.sqrt(abs(omega)/time)
+        noised_omega = omega + ns[2]*math.sqrt(abs(nu)/time) + ns[3]*math.sqrt(abs(omega)/time)
+        
+        # 移動量に従ってパーティクルを動かす（パーティクルは仮想的な存在で小石を踏んだりしないので、IdealRobotクラスの移動メソッドが転用できる
+        self.pose = IdealRobot.state_transition(noised_nu, noised_omega, time, self.pose)
+    
+
 # パーティクルを管理するクラスを作る
 class Mcl:
     def __init__(self, init_pose, num):
         # numで指定された数だけパーティクルのオブジェクトを用意する
         self.particles = [Particle(init_pose) for i in range(num)]
 
+        v = motion_noise_stds                                           # パーティクルの位置に加わる、ガウス分布に従う雑音に関する標準偏差
+        c = np.diag([v["nn"]**2, v["no"]**2, v["on"]**2, v["oo"]**2])   # 与えられたリストを対角成分に持つ対角行列を作る（この場合は4*4行列で、これが4次元ガウス分布の共分散行列になる？）
+        self.motion_noise_rate_pdf = multivariate_normal(cov=c)         # 4次元ガウス分布
+
+    # 各パーティクルを動かすメソッド（Particleクラスのメソッドを呼び出し
+    def motion_update(self, nu, omega, time):
+        for p in self.particles:
+            p.motion_update(nu, omega, time, self.motion_noise_rate_pdf)
+
+    # パーティクルを描画するためのメソッド
+    def draw(self, ax, elems):
+        # 各パーティクルの情報をリストとして取得
+        xs = [p.pose[0] for p in self.particles]
+        ys = [p.pose[1] for p in self.particles]
+        vxs = [math.cos(p.pose[2]) for p in self.particles]
+        vys = [math.sin(p.pose[2]) for p in self.particles]
+
+        # 描画リストに追加
+        elems.append(ax.quiver(xs, ys, vxs, vys, color='blue', alpha=0.5))
+
 # Agentクラスを継承して自己位置推定を行うエージェントのクラスを作る
 class EstimationAgent(Agent):
-    def __init__(self, id, nu, omega, robot=None, estimator=None):
+    def __init__(self, time_interval, id, nu, omega, robot=None, estimator=None):
         # 継承元のAgentクラスの初期化処理を実行
         super().__init__(id, nu, omega, robot)
         self.estimator = estimator
+        self.time_interval = time_interval
 
+        # ロボットに1ステップ前に指示した移動量（これにノイズを載せてパーティクルの移動量にする）
+        self.prev_nu = 0.0
+        self.prev_omega = 0.0
+
+    # エージェントが意思決定をするメソッド（継承元のメソッドを上書き
+    def decision(self, nu, omega, observation=None):
+        # パーティクルの動きを演算する
+        self.estimator.motion_update(self.prev_nu, self.prev_omega, self.time_interval)
+        
+        # 今時ステップにロボットに指示した移動量（コレ自体は継承元クラスで目標位置をベースに演算）を控えておく
+        self.prev_nu, self.prev_omega = self.nu, self.omega
+        
+        return self.nu, self.omega
+    
     # 描画に関する処理（エージェントが想定する自己位置に関する信念を描写する）
     def draw(self, ax, elems):
         pass
