@@ -60,7 +60,7 @@ class EstimationAgent(Agent):
         self.prev_omega = 0.0
 
     # エージェントが意思決定をするメソッド（継承元のメソッドを上書き
-    def decision(self, nu, omega, observation=None):
+    def decision(self, observation=None):
         # パーティクルの動きを演算する
         self.estimator.motion_update(self.prev_nu, self.prev_omega, self.time_interval)
         
@@ -71,7 +71,7 @@ class EstimationAgent(Agent):
     
     # 描画に関する処理（エージェントが想定する自己位置に関する信念を描写する）
     def draw(self, ax, elems):
-        pass
+        self.estimator.draw(ax, elems)
 
 
 # このファイルを直接実行した場合はここからスタートする
@@ -111,21 +111,20 @@ if __name__=='__main__':
                     max_vel=MAX_VEL, field=FIELD)
               for i in range(NUM_BOTS)]
     
+    # 基地局は特殊なのでその設定を追加
+    robots[1].role = 'basestation'
+    robots[1].pose = np.array([0, 0, 45.0/180*math.pi])
+
     # エージェント（コイツがロボットの動きを決める）のオブジェクト化
     estimators = [Mcl(init_pose=robots[i].pose, num=100,
                       motion_noise_stds={"nn":0.01,"no":0.02,"on":0.03,"oo":0.04})
                   for i in range(NUM_BOTS)]                 # 各エージェントに搭載する自己位置推定器の定義
-    agents = [EstimationAgent(time_interval=TIME_STEP, id=i, nu=0, omega=0, estimator=estimators[i])
+    agents = [EstimationAgent(time_interval=TIME_STEP, id=i, nu=0, omega=0, 
+                              robot=robots[i], estimator=estimators[i])
               for i in range (NUM_BOTS)]                    # 各エージェントを定義
 
     # すべてのロボットにエージェントやセンサを搭載して、環境に登録する
     for i in range(NUM_BOTS):
-
-        # 基地局の設定
-        if i == 0:
-            robots[i].role = 'basestation'
-            robots[i].pose = np.array([0, 0, 45.0/180*math.pi]).T
-
         # 各ロボットにエージェントとセンサを搭載
         robots[i].agent = agents[i]
         robots[i].sensor = Camera(m, robots[i], robots, field=FIELD)
