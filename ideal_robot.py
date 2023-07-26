@@ -121,8 +121,11 @@ class IdealRobot:
         else:
             None
 
-        # センサ情報だけでないが諸々使ってロボットの制御指令を決める
-        nu, omega, self.goal = self.agent.decision(self.pose, self.role, self.max_vel, self.current_time, obs)
+        # エージェントからロボット目標地点とそこに向かうための速度を受け取る
+        nu, omega, self.goal = self.agent.move_to_goal(self.pose, self.role, self.max_vel, self.current_time, obs)
+
+        # その他のエージェントによる意思決定
+        nu, omega = self.agent.decision(obs)
         
         # 制御指令に従ってロボットの情報を更新
         self.pose = self.state_transition(nu, omega, time_interval, self.pose)
@@ -171,13 +174,13 @@ class Agent:
     def __init__(self, id, nu, omega, robot=None):
         self.id = id
         self.nu = nu
-        self.omega = omega
-        self.robot = robot
+        self.omega = omega              # ロボットに指示する移動量
+        self.robot = robot              # 自身に関する情報
         self.goal = np.array([0, 0])    # ロボットの目標位置
         self.reached = True             # ロボットの目標位置にロボットが着いたか？
 
     # エージェントが意思決定をするメソッド（今は目的地に向かう速度と角速度を出力し、目的地に到着したら新たな目的地を決める）
-    def decision(self, pose, role, max_vel, current_time, observation=None):
+    def move_to_goal(self, pose, role, max_vel, current_time, observation=None):
         self.pose = pose                    # ロボットの現在位置（本人の信念）
         self.role = role                    # ロボットの現在役割
         self.max_vel = max_vel              # ロボットの最大速度
@@ -198,7 +201,7 @@ class Agent:
 
                 # 新しい目標地点を演算する。今回は特に目的地はなく、レヴィフライトに従う
                 self.goal = self.levyflight(self.pose, alpha=2.0, gamma=1.0, min_step=30, max_step=500, bound=600)
-                return 0, 0, self.goal
+                self.nu, self.omega = 0, 0
             
             # ロボットが目標地点に着いていないなら、目標地点まで向かうための速度と角速度を出力する
             else:
@@ -235,9 +238,11 @@ class Agent:
                 elif ang_vel < -self.max_vel[1]:
                     ang_vel = -self.max_vel[1]
 
-                return lin_vel, ang_vel, self.goal
+                self.nu, self.omega = lin_vel, ang_vel
         else:
-            return 0, 0, np.array([0, 0])
+            self.nu, self.omega = 0, 0
+
+        return self.nu, self.omega, self.goal
         
     # レヴィフライトに基づく次の目的地を決めるメソッド
     def levyflight(self, pose, alpha, gamma, min_step, max_step, bound):
@@ -269,6 +274,10 @@ class Agent:
         
         return new_goal
     
+    # その他の意思決定を行うメソッド（継承先クラスのメソッドで上書きする）
+    def decision(self, observation=None):
+        return self.nu, self.omega
+
 # ランドマークのクラス（今回は使わないかも）
 class Landmark:
     def __init__(self, x, y):
