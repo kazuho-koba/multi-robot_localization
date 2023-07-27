@@ -294,39 +294,40 @@ class EstimationAgent(Agent):
         # センサ情報を取得して自己位置推定を更新（ランドマークの観測と基地局からの観測結果の通知を受けた更新）
         self.estimator.observation_update(self.id, observation)
         
-        # センサ情報を取得して自己位置推定を更新（ロボット同士の相互計測
-        # まずそれぞれの自己位置推定結果の確信度の低さ（パーティクルの分布の広さ）を計算する（計測範囲外＝通信範囲外のものについては空になる）
-        lack_of_confidence_self = self.compute_confidence(self.estimator.particles)
-        # print(self.id, lack_of_confidence_self)
-        lack_of_confidence_others = {key:1e5 for key in range(len(self.allrobots))}
-        for d in self.robot.obs:
-            if d[0] == 'robot':
-                # 観測できたものは通信ができるものとして、相手が計算したものをこっちに送ってくれたという想定
-                lack_of_confidence_others[d[2]] = self.compute_confidence(self.allrobots[d[2]].agent.estimator.particles)
-                self.bs_comm_time[d[2]] = self.allrobots[d[2]].informed_time
-        self.bs_comm_time[self.id] = self.robot.informed_time
-
-        # 計算した確信度の低さをベースに、パーティクルの重み更新（確信度が高いロボットに基づき低い方を更新する）
-        # 返り値はID別の辞書型リスト（Trueなら、その相手の情報に基づきパーティクルの重みを更新した）
-        # updated = {key:False for key in range(len(self.allrobots))}
-        updated = self.estimator.mutual_observation_update(self.id, self.lock_mutual_obs_localization,
-                                                           lack_of_confidence_self, lack_of_confidence_others,
-                                                           self.bs_comm_time, self.robot.current_time)
-        # ある相手の情報に基づいて自身のパーティクル重みを更新していたら、それ以降はその相手の情報に基づいた
-        # 更新もしないし、相手も自身の情報に基づく更新は行わない
-        for i in range(len(self.allrobots)):
-            if updated[i] == True:
-                self.lock_mutual_obs_localization[i] = True
-                self.allrobots[i].agent.lock_mutual_obs_localization[self.id] = True
-
-        # 前述のロックは、相手が観測範囲から外れたら解除する
-        for i in range(len(self.allrobots)):
+        if hasattr(self.estimator, 'particles') == True:
+            # センサ情報を取得して自己位置推定を更新（ロボット同士の相互計測
+            # まずそれぞれの自己位置推定結果の確信度の低さ（パーティクルの分布の広さ）を計算する（計測範囲外＝通信範囲外のものについては空になる）
+            lack_of_confidence_self = self.compute_confidence(self.estimator.particles)
+            # print(self.id, lack_of_confidence_self)
+            lack_of_confidence_others = {key:1e5 for key in range(len(self.allrobots))}
             for d in self.robot.obs:
-                if d[0] == 'robot' and d[2] == i:
-                    self.obs_robot_time[i] = self.robot.current_time
-            # 2秒以上観測がなければロック解除
-            if self.obs_robot_time[i] < self.robot.current_time - 1:
-                self.lock_mutual_obs_localization[i] = False
+                if d[0] == 'robot':
+                    # 観測できたものは通信ができるものとして、相手が計算したものをこっちに送ってくれたという想定
+                    lack_of_confidence_others[d[2]] = self.compute_confidence(self.allrobots[d[2]].agent.estimator.particles)
+                    self.bs_comm_time[d[2]] = self.allrobots[d[2]].informed_time
+            self.bs_comm_time[self.id] = self.robot.informed_time
+
+            # 計算した確信度の低さをベースに、パーティクルの重み更新（確信度が高いロボットに基づき低い方を更新する）
+            # 返り値はID別の辞書型リスト（Trueなら、その相手の情報に基づきパーティクルの重みを更新した）
+            # updated = {key:False for key in range(len(self.allrobots))}
+            updated = self.estimator.mutual_observation_update(self.id, self.lock_mutual_obs_localization,
+                                                            lack_of_confidence_self, lack_of_confidence_others,
+                                                            self.bs_comm_time, self.robot.current_time)
+            # ある相手の情報に基づいて自身のパーティクル重みを更新していたら、それ以降はその相手の情報に基づいた
+            # 更新もしないし、相手も自身の情報に基づく更新は行わない
+            for i in range(len(self.allrobots)):
+                if updated[i] == True:
+                    self.lock_mutual_obs_localization[i] = True
+                    self.allrobots[i].agent.lock_mutual_obs_localization[self.id] = True
+
+            # 前述のロックは、相手が観測範囲から外れたら解除する
+            for i in range(len(self.allrobots)):
+                for d in self.robot.obs:
+                    if d[0] == 'robot' and d[2] == i:
+                        self.obs_robot_time[i] = self.robot.current_time
+                # 2秒以上観測がなければロック解除
+                if self.obs_robot_time[i] < self.robot.current_time - 1:
+                    self.lock_mutual_obs_localization[i] = False
 
         # 返り値
         return self.nu, self.omega
