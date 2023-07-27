@@ -144,8 +144,8 @@ class Robot(IdealRobot):
 
 
         # ロボットの1ステップあたり移動量を決める（返り値にはこのあとノイズなどが乗る）
-        # nu, omega, self.goal = self.agent.move_to_goal(
-        #     self.pose, self.role, self.max_vel, self.current_time, self.obs)
+        nu, omega, self.goal = self.agent.move_to_goal(
+            self.pose, self.role, self.max_vel, self.current_time, self.obs)
         
         # その他の意思決定をエージェントから受け取る（現時点では何もしない、継承先でdecisionメソッドごと上書き）
         nu, omega = self.agent.decision(self.obs)

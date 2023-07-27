@@ -130,8 +130,8 @@ class IdealRobot:
             self.obs = None
 
         # エージェントからロボット目標地点とそこに向かうための速度を受け取る
-        # nu, omega, self.goal = self.agent.move_to_goal(
-        #     self.pose, self.role, self.max_vel, self.current_time, self.obs)
+        nu, omega, self.goal = self.agent.move_to_goal(
+            self.pose, self.role, self.max_vel, self.current_time, self.obs)
 
         # その他のエージェントによる意思決定
         nu, omega = self.agent.decision(self.obs)
