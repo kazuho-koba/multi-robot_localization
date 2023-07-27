@@ -25,7 +25,7 @@ if __name__ == '__main__':
     MAX_VEL = np.array([2.0, 1.0])  # ロボット最大速度（[m/s], [rad/s]）
     FIELD = 600.0                   # フィールド1辺長さ[m]
     SIM_TIME = 500                  # シミュレーション総時間 [sec]
-    SAVE_VIDEO = True               # 動画ファイルを保存
+    SAVE_VIDEO = False               # 動画ファイルを保存
     VIDEO_PLAY_SPEED = 10           # 動画ファイルの再生速度倍率
     ################################
 
@@ -39,8 +39,8 @@ if __name__ == '__main__':
 
     # ランドマークを生成、地図に登録、地図と環境を紐付け
     m = Map()
-    m.append_landmark(Landmark(100, 0))
-    m.append_landmark(Landmark(0, 100))
+    m.append_landmark(Landmark(100, 0, 0))
+    m.append_landmark(Landmark(0, 100, 0))
     world.append(m)
 
     # エージェントを定義
@@ -57,7 +57,7 @@ if __name__ == '__main__':
               for i in range(NUM_BOTS)]
 
     # エージェント（コイツがロボットの動きを決める）のオブジェクト化
-    agents = [Agent(id=i, nu=0, omega=0) for i in range(NUM_BOTS)]
+    agents = [Agent(id=i, role=robots[i].role, nu=0, omega=0) for i in range(NUM_BOTS)]
 
     # すべてのロボットを環境に登録する
     for i in range(NUM_BOTS):
