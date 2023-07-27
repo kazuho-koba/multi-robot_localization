@@ -35,6 +35,9 @@ class Robot(IdealRobot):
         self.informed_pose = np.array([0, 0, 0])
         self.informed_time = -1
 
+        # センサによる観測結果を初期化
+        self.obs = None
+
         # ロボットの移動に加わるバイアスを定義
         # noise_per_meterは1mあたりのノイズ（踏みつける小石のイメージ）の個数平均値。その逆数はノイズを1つ引き当てる(=小石を踏む)までの前進距離
         self.noise_pdf = expon(scale=1.0/(1e-100 + noise_per_meter))
@@ -321,7 +324,8 @@ if __name__ == '__main__':
     robots[0].pose = np.array([0, 0, 0])
 
     # エージェント（コイツがロボットの動きを決める）のオブジェクト化
-    agents = [Agent(id=robots[i].id, role=robots[i].role, nu=0, omega=0) for i in range(NUM_BOTS)]
+    agents = [Agent(id=robots[i].id, role=robots[i].role, nu=0, omega=0,
+                    robot=robots[i], allrobots=robots) for i in range(NUM_BOTS)]
 
     # すべてのロボットを環境に登録する
     for i in range(NUM_BOTS):

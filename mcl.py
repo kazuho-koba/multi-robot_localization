@@ -25,7 +25,9 @@ class Particle:
     # 自己位置推定器から呼び出されてパーティクルから見たカメラの観測結果を返す
     def observation_update(self, observation, id, envmap, distance_dev_rate, direction_dev):
         for d in observation:
-            # ランドマークを検知した場合
+            is_informed = False     # 今時ステップに基地局から情報を貰えたかどうか
+
+            # ランドマークを検知したら、その観測結果に従って重みを更新する
             if d[0] == 'landmark':
                 obs_pos = d[1][0:2]     # 第3要素は対象の向き（ランドマークの場合は使わないデータ）なので除外
                 obs_id = d[2]
@@ -44,14 +46,11 @@ class Particle:
                 # で表現される多変量正規分布であるとして、得ている。
                 self.weight *= multivariate_normal(mean=particle_suggest_pos[0:2], cov=cov).pdf(obs_pos)
             
-            # 他のロボットを検知した場合
-            elif d[0] == 'robot':
-                # print(envmap.robots[d[1]-1])
-                pass
-
-            # 基地局から、基地局による自機位置観測結果をもらっていた場合
+            
+            # 基地局から、基地局による自機位置観測結果を貰ったら、その情報に従って重みを更新する
             if envmap.robots[id].informed_time == envmap.robots[id].current_time:
-                
+                is_informed = True  # 情報提供を受けたフラグをオンに 
+
                 # 基地局からもらった情報には自分の向きも含まれる（1つのランドマークを観測するだけでは、
                 # ロボット自身の向きの推測は不可能で、自己位置推定結果のパーティクルがランドマーク周りに
                 # ドーナツ状に分布することになる）
@@ -79,7 +78,37 @@ class Particle:
                 # self.weight *= multivariate_normal(mean=np.array([self.pose[0], self.pose[1], self.pose[2]]),
                 #                                    cov = cov).pdf(np.array([obs_x, obs_y, obs_theta]))
                 ########################################
-                pass
+                
+
+    # 自己位置推定器から呼び出され、相互観測の結果として自身のパーティクルの尤度を計算する
+    def mutual_observation_update(self, pose_obs, confidence_diff, lack_of_confidence_others,
+                                  bs_comm_time_other, current_time,
+                                  distance_dev_rate, direction_dev):
+        
+        # ロボットの位置と姿勢（相手ロボが観測して通知してきたデータ
+        obs_x, obs_y, obs_theta = pose_obs[0], pose_obs[1], pose_obs[2]
+
+        # 尤度計算に必要な情報を計算する（相手からの観測の誤差を考慮
+        distance_dev_x = distance_dev_rate * obs_x
+        distance_dev_y = distance_dev_rate * obs_y
+        cov = np.diag(np.array([distance_dev_x**2, distance_dev_y**2, direction_dev**2]))
+        
+        # パーティクル位置と相手ロボットの観測ベースの自己位置の差を計算する
+        diff = np.array([obs_x - self.pose[0], obs_y - self.pose[1], obs_theta - self.pose[2]])
+        
+        # 彼我の自己位置推定結果に対する確信度の差から重み付けをスケーリングする
+        diff_scale = 1.0                                    # 全体の係数
+        lack_of_confidence_others += 1.0                    # 相手の確信度が高い（値が小さい）とここがゼロになってしまい後でスケールが無限になってしまう
+        adjust_scale_conf = 1/(1+(75*lack_of_confidence_others)) # 相手の自己位置推定結果に対する自身のなさに応じた係数（元の値は高いほど自信がないので逆数を取る）
+        adjust_scale_bs = np.exp(-(current_time-bs_comm_time_other)/75)
+        scaling_factor = np.exp((confidence_diff/diff_scale) * adjust_scale_conf * adjust_scale_bs)
+        # print(confidence_diff, adjust_scale, scaling_factor)
+
+        # パーティクルの重みを変更する倍数を計算
+        weight_update = multivariate_normal(mean=[0,0,0], cov=cov).pdf(diff)
+        # スケーリングファクタと掛け合わせて重みを更新
+        self.weight *= weight_update ** scaling_factor
+        pass
 
 
 # パーティクルを管理する自己位置情報推定器のクラスを作る
@@ -108,11 +137,64 @@ class Mcl:
         for p in self.particles:
             p.motion_update(nu, omega, time, self.motion_noise_rate_pdf)
 
-    # エージェントから呼び出されてカメラ情報の処理をする
+    # エージェントから呼び出されてセンサ情報（ランドマークの観測＆基地局からの観測結果通知）に基づきパーティクル情報を更新する
     def observation_update(self, id, observation):
         for p in self.particles:
             p.observation_update(observation, id, self.map, self.distance_dev_rate, self.direction_dev)
         
+        # 以下の処理はmutual_observation_updateで実行
+        # # この時点で尤度最大のパーティクル情報を取得
+        # self.set_ml()
+
+        # # パーティクルのリサンプリングを実施する（何も観測していない時に実行しても
+        # # その時点の自分の認識のバイアスを肥大化させるだけなので、観測物が存在するときのみ実行する
+        # # if len(observation) > -1:
+        # #     self.resampling()   
+
+        # # 修正したリサンプリングでは上記の心配がない
+        # self.resampling_mod()
+
+        pass
+
+    # エージェントから呼び出されてセンサ情報（ロボット同士の相互計測）に基づきパーティクルの重みを更新する
+    def mutual_observation_update(self, id, is_locked,
+                                  lack_of_confidence_self, lack_of_confidence_others,
+                                  bs_comm_time, current_time):
+
+        # 誰の情報に基づいて自分がパーティクルの重みを更新したかを控えておくリスト
+        updated = {key:False for key in range(len(self.map.robots))}
+
+        # 以下、相手の情報は相手が計算して結果をこっちに通信で教えてくるという想定
+        for i in range(len(self.map.robots)):
+            otherbot = self.map.robots[i]   # 他のロボットの情報            
+            obs_others = otherbot.obs       # 他のロボットの観測結果
+            
+            if obs_others != None:
+                for d in obs_others:
+                    # 他のロボットが自身を観測した結果を通知してきて、かつそのロボットの情報に基づく更新が許可されている場合
+                    if d[0] == 'robot' and d[2] == id and is_locked[otherbot.id] == False \
+                        and lack_of_confidence_others[otherbot.id] != None:
+                        # そのロボットの自己位置推定の確信度（の低さ）
+                        otherbot_lack_of_conf = lack_of_confidence_others[otherbot.id]  
+                        
+                        # 相手の観測ベースでの自己位置を取得（誤差が載った相手の自己位置推定結果＋誤差が載った自機の観測結果）
+                        pose_obs = np.array([otherbot.agent.estimator.pose[0] + d[1][0]*math.cos(d[1][1]),
+                                             otherbot.agent.estimator.pose[1] + d[1][0]*math.sin(d[1][1]),
+                                             d[1][2]])                      
+
+                        # 彼我の確信度の差に応じてパーティクル情報を更新
+                        confidence_diff = lack_of_confidence_self - otherbot_lack_of_conf   # 確信度の差（元データは確信度の低さなので、これは値が大きいほど、相手の方が自信がある）
+                        if confidence_diff > 0 and bs_comm_time[id] < bs_comm_time[otherbot.id]:
+                            # 相手の方が自己位置推定に自信がある時、相手の情報をベースに自身の自己位置推定を更新する
+                            for p in self.particles:
+                                p.mutual_observation_update(pose_obs, confidence_diff, otherbot_lack_of_conf,
+                                                            bs_comm_time[otherbot.id], current_time,
+                                                            self.distance_dev_rate, self.direction_dev)
+                            pass
+
+                            # 相手の情報に基づいて情報を更新したことをメモ
+                            updated[otherbot.id] = True
+
         # この時点で尤度最大のパーティクル情報を取得
         self.set_ml()
 
@@ -124,6 +206,7 @@ class Mcl:
         # 修正したリサンプリングでは上記の心配がない
         self.resampling_mod()
 
+        return updated
     # パーティクルのリサンプリングを実施するメソッド
     def resampling(self):
         ws = [e.weight for e in self.particles]     # パーティクルの重みリストを取得
@@ -195,9 +278,10 @@ class EstimationAgent(Agent):
         self.prev_nu = 0.0
         self.prev_omega = 0.0
         
-        # 他ロボットの観測結果を保存する変数
-        # self.robot_obs_log = {key: None for key in range(len(self.allrobots))}  # 他ロボットの観測結果ログ
-        # self.robot_obs_ma = {key: None for key in range(len(self.allrobots))}   # 上記を元に移動平均を取ったデータ
+        # 相互計測による自己位置推定更新をロックするフラグ
+        self.lock_mutual_obs_localization = {key:False for key in range(len(self.allrobots))}
+        self.obs_robot_time = {key:False for key in range(len(self.allrobots))} # 最後に相手を観測した時刻
+        self.bs_comm_time = {key:0 for key in range(len(self.allrobots))}       # 基地局から最後に情報を受けた時刻
 
     # エージェントが意思決定をするメソッド（継承元のメソッドを上書き
     def decision(self, observation=None):
@@ -207,12 +291,70 @@ class EstimationAgent(Agent):
         # 今時ステップにロボットに指示した移動量（コレ自体は継承元クラスで目標位置をベースに演算）を控えておく
         self.prev_nu, self.prev_omega = self.nu, self.omega
 
-        # カメラ情報を取得
+        # センサ情報を取得して自己位置推定を更新（ランドマークの観測と基地局からの観測結果の通知を受けた更新）
         self.estimator.observation_update(self.id, observation)
         
+        # センサ情報を取得して自己位置推定を更新（ロボット同士の相互計測
+        # まずそれぞれの自己位置推定結果の確信度の低さ（パーティクルの分布の広さ）を計算する（計測範囲外＝通信範囲外のものについては空になる）
+        lack_of_confidence_self = self.compute_confidence(self.estimator.particles)
+        # print(self.id, lack_of_confidence_self)
+        lack_of_confidence_others = {key:1e5 for key in range(len(self.allrobots))}
+        for d in self.robot.obs:
+            if d[0] == 'robot':
+                # 観測できたものは通信ができるものとして、相手が計算したものをこっちに送ってくれたという想定
+                lack_of_confidence_others[d[2]] = self.compute_confidence(self.allrobots[d[2]].agent.estimator.particles)
+                self.bs_comm_time[d[2]] = self.allrobots[d[2]].informed_time
+        self.bs_comm_time[self.id] = self.robot.informed_time
+
+        # 計算した確信度の低さをベースに、パーティクルの重み更新（確信度が高いロボットに基づき低い方を更新する）
+        # 返り値はID別の辞書型リスト（Trueなら、その相手の情報に基づきパーティクルの重みを更新した）
+        # updated = {key:False for key in range(len(self.allrobots))}
+        updated = self.estimator.mutual_observation_update(self.id, self.lock_mutual_obs_localization,
+                                                           lack_of_confidence_self, lack_of_confidence_others,
+                                                           self.bs_comm_time, self.robot.current_time)
+        # ある相手の情報に基づいて自身のパーティクル重みを更新していたら、それ以降はその相手の情報に基づいた
+        # 更新もしないし、相手も自身の情報に基づく更新は行わない
+        for i in range(len(self.allrobots)):
+            if updated[i] == True:
+                self.lock_mutual_obs_localization[i] = True
+                self.allrobots[i].agent.lock_mutual_obs_localization[self.id] = True
+
+        # 前述のロックは、相手が観測範囲から外れたら解除する
+        for i in range(len(self.allrobots)):
+            for d in self.robot.obs:
+                if d[0] == 'robot' and d[2] == i:
+                    self.obs_robot_time[i] = self.robot.current_time
+            # 2秒以上観測がなければロック解除
+            if self.obs_robot_time[i] < self.robot.current_time - 1:
+                self.lock_mutual_obs_localization[i] = False
+
+        # 返り値
         return self.nu, self.omega
     
-        
+    # パーティクルの分布の広さを計算するメソッド
+    def compute_confidence(self, particles):
+        # パーティクルの各要素を取得
+        x = np.array([p.pose[0] for p in particles])
+        y = np.array([p.pose[1] for p in particles])
+        theta = np.array([p.pose[2] for p in particles])
+
+        # それぞれの分散を計算
+        var_x = np.var(x)
+        var_y = np.var(y)
+        var_theta = np.var(theta)
+
+        # 分散を正規化
+        var_x /= self.robot.field**2    # xの範囲は0から600
+        var_y /= self.robot.field**2    # yの範囲はーー
+        var_theta /= (2*np.pi)**2       # thetaの範囲は-piからpi
+
+        # 正規化標準偏差の和を自信のなさの指標とする
+        lack_of_confidence = np.sqrt(var_x) + np.sqrt(var_y) + np.sqrt(var_theta)
+
+        return lack_of_confidence
+
+
+
     # 自身が基地局エージェントの場合に実行する処理
     def bs_task(self):
         # 他のロボットの観測結果を抽出する
@@ -249,7 +391,7 @@ if __name__=='__main__':
     FIELD = 600                     # フィールド1辺長さ[m]
     SIM_TIME = 500                  # シミュレーション総時間 [sec]
     TIME_STEP = 1                   # 1ステップあたり経過する秒数
-    SAVE_VIDEO = False              # 動画ファイルを保存
+    SAVE_VIDEO = True              # 動画ファイルを保存
     VIDEO_PLAY_SPEED = 10           # 動画ファイルの再生速度倍率
     ################################
 
