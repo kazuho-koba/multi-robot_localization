@@ -10,7 +10,7 @@ if __name__=='__main__':
     FIELD = 600                     # フィールド1辺長さ[m]
     SIM_TIME = 500                  # シミュレーション総時間 [sec]
     TIME_STEP = 1                   # 1ステップあたり経過する秒数
-    SAVE_VIDEO = True              # 動画ファイルを保存
+    SAVE_VIDEO = False              # 動画ファイルを保存
     VIDEO_PLAY_SPEED = 10           # 動画ファイルの再生速度倍率
     ################################
 

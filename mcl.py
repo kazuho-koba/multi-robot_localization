@@ -47,37 +47,37 @@ class Particle:
                 self.weight *= multivariate_normal(mean=particle_suggest_pos[0:2], cov=cov).pdf(obs_pos)
             
             
-            # 基地局から、基地局による自機位置観測結果を貰ったら、その情報に従って重みを更新する
-            if envmap.robots[id].informed_time == envmap.robots[id].current_time:
-                is_informed = True  # 情報提供を受けたフラグをオンに 
+            # # 基地局から、基地局による自機位置観測結果を貰ったら、その情報に従って重みを更新する
+            # if envmap.robots[id].informed_time == envmap.robots[id].current_time:
+            #     is_informed = True  # 情報提供を受けたフラグをオンに 
 
-                # 基地局からもらった情報には自分の向きも含まれる（1つのランドマークを観測するだけでは、
-                # ロボット自身の向きの推測は不可能で、自己位置推定結果のパーティクルがランドマーク周りに
-                # ドーナツ状に分布することになる）
+            #     # 基地局からもらった情報には自分の向きも含まれる（1つのランドマークを観測するだけでは、
+            #     # ロボット自身の向きの推測は不可能で、自己位置推定結果のパーティクルがランドマーク周りに
+            #     # ドーナツ状に分布することになる）
 
-                # ロボットの位置と姿勢（基地局が観測して通知してきたデータ）
-                obs_x, obs_y, obs_theta = envmap.robots[id].informed_pose[0], envmap.robots[id].informed_pose[1], envmap.robots[id].informed_pose[2]
+            #     # ロボットの位置と姿勢（基地局が観測して通知してきたデータ）
+            #     obs_x, obs_y, obs_theta = envmap.robots[id].informed_pose[0], envmap.robots[id].informed_pose[1], envmap.robots[id].informed_pose[2]
 
-                # 尤度計算に必要な情報を計算する
-                distance_dev_x = distance_dev_rate * obs_x
-                distance_dev_y = distance_dev_rate * obs_y
-                cov = np.diag(np.array([distance_dev_x**2, distance_dev_y**2, direction_dev**2]))
+            #     # 尤度計算に必要な情報を計算する
+            #     distance_dev_x = distance_dev_rate * obs_x
+            #     distance_dev_y = distance_dev_rate * obs_y
+            #     cov = np.diag(np.array([distance_dev_x**2, distance_dev_y**2, direction_dev**2]))
 
-                # パーティクル位置と基地局からの観測データの差を計算する
-                diff = np.array([obs_x - self.pose[0], obs_y - self.pose[1], obs_theta - self.pose[2]])
+            #     # パーティクル位置と基地局からの観測データの差を計算する
+            #     diff = np.array([obs_x - self.pose[0], obs_y - self.pose[1], obs_theta - self.pose[2]])
                 
-                # それに基づいて重みを更新する
-                # ランドマークを観測した場合の応用で、diff（基地局が観測したロボットの位置・姿勢と、今検討対象としているパーティクルの位置・姿勢の差分）
-                # が得られる確率を、PDFが平均ゼロ、共分散がセンサ特性で決まる多変量正規分布であるとして計算している。
-                self.weight *= multivariate_normal(mean=[0, 0, 0], cov=cov).pdf(diff)
+            #     # それに基づいて重みを更新する
+            #     # ランドマークを観測した場合の応用で、diff（基地局が観測したロボットの位置・姿勢と、今検討対象としているパーティクルの位置・姿勢の差分）
+            #     # が得られる確率を、PDFが平均ゼロ、共分散がセンサ特性で決まる多変量正規分布であるとして計算している。
+            #     self.weight *= multivariate_normal(mean=[0, 0, 0], cov=cov).pdf(diff)
 
 
-                ######## 重み更新の別解（やることは上と同じ） ##################
-                # obs_x, obs_y, obs_theta（基地局が観測したロボットの位置・姿勢）が得られる確率を、PDFが
-                # 平均がパーティクルの位置・姿勢、共分散がセンサ特性によって決まるものとして計算し重みに乗じる
-                # self.weight *= multivariate_normal(mean=np.array([self.pose[0], self.pose[1], self.pose[2]]),
-                #                                    cov = cov).pdf(np.array([obs_x, obs_y, obs_theta]))
-                ########################################
+            #     ######## 重み更新の別解（やることは上と同じ） ##################
+            #     # obs_x, obs_y, obs_theta（基地局が観測したロボットの位置・姿勢）が得られる確率を、PDFが
+            #     # 平均がパーティクルの位置・姿勢、共分散がセンサ特性によって決まるものとして計算し重みに乗じる
+            #     # self.weight *= multivariate_normal(mean=np.array([self.pose[0], self.pose[1], self.pose[2]]),
+            #     #                                    cov = cov).pdf(np.array([obs_x, obs_y, obs_theta]))
+            #     ########################################
                 
 
     # 自己位置推定器から呼び出され、相互観測の結果として自身のパーティクルの尤度を計算する
@@ -143,16 +143,16 @@ class Mcl:
             p.observation_update(observation, id, self.map, self.distance_dev_rate, self.direction_dev)
         
         # 以下の処理はmutual_observation_updateで実行
-        # # この時点で尤度最大のパーティクル情報を取得
-        # self.set_ml()
+        # この時点で尤度最大のパーティクル情報を取得
+        self.set_ml()
 
-        # # パーティクルのリサンプリングを実施する（何も観測していない時に実行しても
-        # # その時点の自分の認識のバイアスを肥大化させるだけなので、観測物が存在するときのみ実行する
-        # # if len(observation) > -1:
-        # #     self.resampling()   
+        # パーティクルのリサンプリングを実施する（何も観測していない時に実行しても
+        # その時点の自分の認識のバイアスを肥大化させるだけなので、観測物が存在するときのみ実行する
+        # if len(observation) > -1:
+        #     self.resampling()   
 
-        # # 修正したリサンプリングでは上記の心配がない
-        # self.resampling_mod()
+        # 修正したリサンプリングでは上記の心配がない
+        self.resampling_mod()
 
         pass
 
@@ -195,16 +195,16 @@ class Mcl:
                             # 相手の情報に基づいて情報を更新したことをメモ
                             updated[otherbot.id] = True
 
-        # この時点で尤度最大のパーティクル情報を取得
-        self.set_ml()
+        # # この時点で尤度最大のパーティクル情報を取得
+        # self.set_ml()
 
-        # パーティクルのリサンプリングを実施する（何も観測していない時に実行しても
-        # その時点の自分の認識のバイアスを肥大化させるだけなので、観測物が存在するときのみ実行する
-        # if len(observation) > -1:
-        #     self.resampling()   
+        # # パーティクルのリサンプリングを実施する（何も観測していない時に実行しても
+        # # その時点の自分の認識のバイアスを肥大化させるだけなので、観測物が存在するときのみ実行する
+        # # if len(observation) > -1:
+        # #     self.resampling()   
 
-        # 修正したリサンプリングでは上記の心配がない
-        self.resampling_mod()
+        # # 修正したリサンプリングでは上記の心配がない
+        # self.resampling_mod()
 
         return updated
     # パーティクルのリサンプリングを実施するメソッド
@@ -368,6 +368,9 @@ class EstimationAgent(Agent):
                                  obs_bot[1][2]]).T
             self.allrobots[obs_bot[2]].informed_pose = est_pose
             self.allrobots[obs_bot[2]].informed_time = self.robot.current_time
+
+        # 自分（基地局）は常に自分自身と通信しているものとみなす
+        self.robot.informed_time = self.robot.current_time
             
     
     # 描画に関する処理（エージェントが想定する自己位置に関する信念を描写する）
@@ -408,7 +411,10 @@ if __name__=='__main__':
     m = Map()
     # m.append_landmark(Landmark(80, 0, 0))
     # m.append_landmark(Landmark(0, 80, 0))
-    
+    m.append_landmark(Landmark(200, 200, 0))
+    m.append_landmark(Landmark(100, 500, 0))
+    m.append_landmark(Landmark(500, 100, 0))
+    m.append_landmark(Landmark(500, 500, 0))
 
     # ロボットのオブジェクト化
     robots = [Robot(id=i, role='explorer',
